@@ -132,6 +132,7 @@ internal fun PlaybackSettingsSections(
     onSetPauseOverlayEnabled: (Boolean) -> Unit,
     onSetOsdClockEnabled: (Boolean) -> Unit,
     onSetSkipIntroEnabled: (Boolean) -> Unit,
+    onSetSeekPreviewEnabled: (Boolean) -> Unit,
     onSetFrameRateMatchingMode: (FrameRateMatchingMode) -> Unit,
     onSetResolutionMatchingEnabled: (Boolean) -> Unit,
     onDisableAfrAndResolution: () -> Unit,
@@ -321,6 +322,18 @@ internal fun PlaybackSettingsSections(
                     subtitle = stringResource(R.string.playback_skip_intro_sub),
                     isChecked = playerSettings.skipIntroEnabled,
                     onCheckedChange = onSetSkipIntroEnabled,
+                    onFocused = { focusedSection = PlaybackSection.GENERAL },
+                    enabled = !generalUi.isExternalPlayer
+                )
+            }
+
+            item(key = "general_seek_preview") {
+                ToggleSettingsItem(
+                    icon = Icons.Default.Image,
+                    title = stringResource(R.string.playback_seek_preview),
+                    subtitle = stringResource(R.string.playback_seek_preview_sub),
+                    isChecked = playerSettings.seekPreviewEnabled,
+                    onCheckedChange = onSetSeekPreviewEnabled,
                     onFocused = { focusedSection = PlaybackSection.GENERAL },
                     enabled = !generalUi.isExternalPlayer
                 )

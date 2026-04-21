@@ -63,6 +63,8 @@ class PlayerRuntimeController(
     internal val tmdbService: com.nuvio.tv.core.tmdb.TmdbService,
     internal val tmdbMetadataService: com.nuvio.tv.core.tmdb.TmdbMetadataService,
     internal val tmdbSettingsDataStore: com.nuvio.tv.data.local.TmdbSettingsDataStore,
+    internal val seekPreviewGenerator: com.nuvio.tv.core.player.SeekPreviewGenerator,
+    internal val seekPreviewStore: com.nuvio.tv.core.player.SeekPreviewThumbnailStore,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope
 ) {
@@ -302,6 +304,13 @@ class PlayerRuntimeController(
     internal var currentStreamBingeGroup: String? = navigationArgs.bingeGroup
     internal var hasInitializedAudioAmplificationForSession: Boolean = false
 
+    // Seek preview thumbnails (step 4 wiring)
+    internal var seekPreviewEnabled: Boolean = false
+    internal var seekPreviewStartedForCurrentStream: Boolean = false
+    internal var seekPreviewPlaybackStartedAtMs: Long? = null
+    internal var seekPreviewStateObserverJob: Job? = null
+    internal var seekPreviewDisabledLogged: Boolean = false
+
     internal var lastBufferLogTimeMs: Long = 0L
     
     internal val gainAudioProcessor = GainAudioProcessor()
@@ -377,6 +386,8 @@ class PlayerRuntimeController(
         observeEpisodeWatchProgress()
         observeTorrentSettings()
         observeDeviceLocalAspectMode()
+        observeSeekPreviewSettings()
+        observeSeekPreviewGeneratorState()
     }
 
     private fun observeTorrentSettings() {

@@ -52,10 +52,14 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         firstFrameReady = pos > 0L || (playingNow && !cacheBuffering && playerDuration > 0L)
                         if (firstFrameReady) {
                             hasRenderedFirstFrame = true
+                            notePlaybackStartedForSeekPreview()
                         }
                     }
                     if (playerDuration > lastKnownDuration) {
                         lastKnownDuration = playerDuration
+                    }
+                    if (playerDuration > 0L) {
+                        startSeekPreviewIfReady(playerDuration)
                     }
                     val displayPosition = pendingPreviewSeekPosition ?: pos
                     updatePlaybackTimeline(
@@ -103,6 +107,12 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     currentPosition = displayPosition,
                     duration = playerDuration.coerceAtLeast(0L)
                 )
+                // Fallback retry — the settings Flow may not have emitted by
+                // the time STATE_READY fired. Periodic re-check catches that
+                // race (no-op once generation is already started).
+                if (playerDuration > 0L) {
+                    startSeekPreviewIfReady(playerDuration)
+                }
                 // Update torrent rebuffer progress from ExoPlayer's buffer state
                 if (isTorrentStream && _uiState.value.isBuffering && hasRenderedFirstFrame) {
                     val bufferedAheadMs = (player.bufferedPosition - pos).coerceAtLeast(0)
@@ -556,6 +566,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         is PlayerEvent.OnSeekBy -> {
             pendingPreviewSeekPosition = null
+            _uiState.update { it.copy(pendingPreviewSeekPosition = null) }
             val current = currentPlaybackPositionMs() ?: 0L
             val maxDuration = currentPlaybackDurationMs().takeIf { it >= 0 } ?: Long.MAX_VALUE
             val target = (current + event.deltaMs)
@@ -577,6 +588,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 .coerceAtLeast(0L)
                 .coerceAtMost(maxDuration)
             pendingPreviewSeekPosition = target
+            _uiState.update { it.copy(pendingPreviewSeekPosition = target) }
             updatePlaybackTimeline(currentPosition = target)
             if (_uiState.value.showControls) {
                 showControlsTemporarily()
@@ -590,6 +602,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 seekPlaybackTo(target)
                 updatePlaybackTimeline(currentPosition = target)
                 pendingPreviewSeekPosition = null
+                _uiState.update { it.copy(pendingPreviewSeekPosition = null) }
                 scheduleProgressSyncAfterSeek()
                 if (_uiState.value.showControls) {
                     showControlsTemporarily()
@@ -600,6 +613,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         is PlayerEvent.OnSeekTo -> {
             pendingPreviewSeekPosition = null
+            _uiState.update { it.copy(pendingPreviewSeekPosition = null) }
             seekPlaybackTo(event.position)
             updatePlaybackTimeline(currentPosition = event.position)
             scheduleProgressSyncAfterSeek()

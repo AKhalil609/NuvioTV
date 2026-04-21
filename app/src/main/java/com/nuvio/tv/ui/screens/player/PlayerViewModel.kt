@@ -5,6 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.ExoPlayer
+import com.nuvio.tv.core.player.SeekPreviewGenerator
+import com.nuvio.tv.core.player.SeekPreviewThumbnailStore
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.torrent.TorrentService
 import com.nuvio.tv.core.torrent.TorrentSettings
@@ -51,6 +53,8 @@ class PlayerViewModel @Inject constructor(
     private val tmdbService: TmdbService,
     private val tmdbMetadataService: TmdbMetadataService,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
+    private val seekPreviewGenerator: SeekPreviewGenerator,
+    private val seekPreviewStore: SeekPreviewThumbnailStore,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -77,6 +81,8 @@ class PlayerViewModel @Inject constructor(
         tmdbService = tmdbService,
         tmdbMetadataService = tmdbMetadataService,
         tmdbSettingsDataStore = tmdbSettingsDataStore,
+        seekPreviewGenerator = seekPreviewGenerator,
+        seekPreviewStore = seekPreviewStore,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope
     )
@@ -89,6 +95,13 @@ class PlayerViewModel @Inject constructor(
 
     val exoPlayer: ExoPlayer?
         get() = controller.exoPlayer
+
+    val seekPreviewState: StateFlow<SeekPreviewGenerator.State>
+        get() = seekPreviewGenerator.state
+
+    /** Returns JPEG bytes for the cached preview nearest [tsMs], or null. */
+    fun nearestSeekPreviewJpeg(tsMs: Long): ByteArray? =
+        seekPreviewGenerator.nearestJpeg(tsMs)
 
     fun getCurrentStreamUrl(): String = controller.getCurrentStreamUrl()
 

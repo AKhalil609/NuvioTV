@@ -1576,6 +1576,7 @@ private fun PlayerControlsOverlay(
 
             // Progress bar — always LTR regardless of locale
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                SeekPreviewThumbnailHost(viewModel = viewModel)
                 PlayerControlsProgressBarHost(
                     viewModel = viewModel,
                     focusRequester = progressBarFocusRequester,
@@ -1996,6 +1997,7 @@ private fun ProgressBar(
 
 @Composable
 private fun SeekOverlay(
+    viewModel: PlayerViewModel,
     currentPosition: Long,
     duration: Long
 ) {
@@ -2005,6 +2007,7 @@ private fun SeekOverlay(
             .padding(horizontal = 32.dp, vertical = 24.dp)
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            SeekPreviewThumbnailHost(viewModel = viewModel)
             ProgressBar(
                 currentPosition = currentPosition,
                 duration = duration,
@@ -2034,6 +2037,7 @@ private fun SeekOverlayHost(viewModel: PlayerViewModel) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
 
     SeekOverlay(
+        viewModel = viewModel,
         currentPosition = playbackTimeline.currentPosition,
         duration = playbackTimeline.duration
     )

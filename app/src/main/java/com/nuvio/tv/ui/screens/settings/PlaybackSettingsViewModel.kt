@@ -124,6 +124,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setSkipIntroEnabled(enabled)
     }
 
+    suspend fun setSeekPreviewEnabled(enabled: Boolean) {
+        playerSettingsDataStore.setSeekPreviewEnabled(enabled)
+    }
+
     suspend fun setFrameRateMatchingMode(mode: FrameRateMatchingMode) {
         playerSettingsDataStore.setFrameRateMatchingMode(mode)
     }
