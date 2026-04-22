@@ -178,6 +178,7 @@ data class PlayerSettings(
     val osdClockEnabled: Boolean = true,
     val skipIntroEnabled: Boolean = true,
     val seekPreviewEnabled: Boolean = false,
+    val seekPreviewCacheLimitMb: Int = 200,
     // Dolby Vision Profile 7 → HEVC fallback (requires forked ExoPlayer)
     val mapDV7ToHevc: Boolean = false,
     val mpvHardwareDecodeMode: MpvHardwareDecodeMode = MpvHardwareDecodeMode.AUTO_SAFE,
@@ -310,6 +311,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val osdClockEnabledKey = booleanPreferencesKey("osd_clock_enabled")
     private val skipIntroEnabledKey = booleanPreferencesKey("skip_intro_enabled")
     private val seekPreviewEnabledKey = booleanPreferencesKey("seek_preview_enabled")
+    private val seekPreviewCacheLimitMbKey = intPreferencesKey("seek_preview_cache_limit_mb")
     private val mapDV7ToHevcKey = booleanPreferencesKey("map_dv7_to_hevc")
     private val mpvHardwareDecodeModeKey = stringPreferencesKey("mpv_hardware_decode_mode")
     private val frameRateMatchingKey = booleanPreferencesKey("frame_rate_matching")
@@ -461,6 +463,7 @@ class PlayerSettingsDataStore @Inject constructor(
                 osdClockEnabled = prefs[osdClockEnabledKey] ?: true,
                 skipIntroEnabled = prefs[skipIntroEnabledKey] ?: true,
                 seekPreviewEnabled = prefs[seekPreviewEnabledKey] ?: false,
+                seekPreviewCacheLimitMb = (prefs[seekPreviewCacheLimitMbKey] ?: 200).coerceIn(50, 200),
                 mapDV7ToHevc = prefs[mapDV7ToHevcKey] ?: false,
                 mpvHardwareDecodeMode = parseMpvHardwareDecodeMode(prefs[mpvHardwareDecodeModeKey]),
                 frameRateMatchingMode = prefs[frameRateMatchingModeKey]?.let {
@@ -657,6 +660,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setSeekPreviewEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[seekPreviewEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setSeekPreviewCacheLimitMb(mb: Int) {
+        store().edit { prefs ->
+            prefs[seekPreviewCacheLimitMbKey] = mb.coerceIn(50, 200)
         }
     }
 

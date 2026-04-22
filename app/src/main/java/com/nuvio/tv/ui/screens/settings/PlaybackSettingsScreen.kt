@@ -138,6 +138,7 @@ fun PlaybackSettingsContent(
     )
     val installedAddonNames by viewModel.installedAddonNames.collectAsStateWithLifecycle(initialValue = emptyList())
     val enabledPluginNames by viewModel.enabledPluginNames.collectAsStateWithLifecycle(initialValue = emptyList())
+    val seekPreviewCacheSizeBytes by viewModel.seekPreviewCacheSizeBytes.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
     // Dialog states
@@ -252,6 +253,9 @@ fun PlaybackSettingsContent(
                 onSetOsdClockEnabled = { enabled -> coroutineScope.launch { viewModel.setOsdClockEnabled(enabled) } },
                 onSetSkipIntroEnabled = { enabled -> coroutineScope.launch { viewModel.setSkipIntroEnabled(enabled) } },
                 onSetSeekPreviewEnabled = { enabled -> coroutineScope.launch { viewModel.setSeekPreviewEnabled(enabled) } },
+                seekPreviewCacheSizeBytes = seekPreviewCacheSizeBytes,
+                onClearSeekPreviewCache = { viewModel.clearSeekPreviewCache() },
+                onSetSeekPreviewCacheLimitMb = { mb -> coroutineScope.launch { viewModel.setSeekPreviewCacheLimitMb(mb) } },
                 onSetFrameRateMatchingMode = { mode -> coroutineScope.launch { viewModel.setFrameRateMatchingMode(mode) } },
                 onSetResolutionMatchingEnabled = { enabled ->
                     coroutineScope.launch { viewModel.setResolutionMatchingEnabled(enabled) }

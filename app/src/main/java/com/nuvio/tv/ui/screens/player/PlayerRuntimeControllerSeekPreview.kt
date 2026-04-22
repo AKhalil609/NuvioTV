@@ -9,9 +9,6 @@ import kotlinx.coroutines.launch
 
 private const val SEEK_PREVIEW_LOG_TAG = "SeekPreview"
 
-private const val SEEK_PREVIEW_CACHE_BUDGET_BYTES: Long = 200L * 1024L * 1024L
-private const val SEEK_PREVIEW_NEXT_CHUNK_WINDOW_MS: Long = 5L * 60L * 1000L
-
 /**
  * Mirrors the persisted "seek preview enabled" flag into the controller.
  * Called once from [PlayerRuntimeController]'s init block.
@@ -21,6 +18,7 @@ internal fun PlayerRuntimeController.observeSeekPreviewSettings() {
         playerSettingsDataStore.playerSettings.collectLatest { settings ->
             val changed = seekPreviewEnabled != settings.seekPreviewEnabled
             seekPreviewEnabled = settings.seekPreviewEnabled
+            seekPreviewCacheBudgetBytes = settings.seekPreviewCacheLimitMb.toLong() * 1024L * 1024L
             if (changed) {
                 Log.i(SEEK_PREVIEW_LOG_TAG, "setting → enabled=${settings.seekPreviewEnabled}")
             }
@@ -66,13 +64,7 @@ internal fun PlayerRuntimeController.observeSeekPreviewGeneratorState() {
             }
 
             if (state !is SeekPreviewGenerator.State.ChunkDone || !state.hasMoreChunks) return@collect
-            val startedAt = seekPreviewPlaybackStartedAtMs ?: return@collect
-            val elapsed = System.currentTimeMillis() - startedAt
-            if (elapsed < SEEK_PREVIEW_NEXT_CHUNK_WINDOW_MS) {
-                seekPreviewGenerator.continueNextChunk(scope = scope)
-            } else {
-                Log.i(SEEK_PREVIEW_LOG_TAG, "skipping next chunk: ${elapsed}ms since playback > 5min window")
-            }
+            seekPreviewGenerator.continueNextChunk(scope = scope)
         }
     }
 }
@@ -119,7 +111,7 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
             "urlHost=${url.substringBefore('?').substringAfter("://").substringBefore('/')}"
     )
     scope.launch(Dispatchers.IO) {
-        runCatching { seekPreviewStore.trimLru(SEEK_PREVIEW_CACHE_BUDGET_BYTES) }
+        runCatching { seekPreviewStore.trimLru(seekPreviewCacheBudgetBytes) }
     }
     seekPreviewGenerator.start(
         input = SeekPreviewGenerator.Input(
@@ -133,20 +125,12 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
     )
 }
 
-/** Records the moment playback actually starts, for the 5-min chunking window. */
-internal fun PlayerRuntimeController.notePlaybackStartedForSeekPreview() {
-    if (seekPreviewPlaybackStartedAtMs == null) {
-        seekPreviewPlaybackStartedAtMs = System.currentTimeMillis()
-    }
-}
-
 /**
  * Called when the current stream is being torn down (release or switch).
  * Resets per-stream state so the next stream can kick off its own run.
  */
 internal fun PlayerRuntimeController.resetSeekPreviewForNewStream() {
     seekPreviewStartedForCurrentStream = false
-    seekPreviewPlaybackStartedAtMs = null
     seekPreviewDisabledLogged = false
     seekPreviewGenerator.stop()
 }

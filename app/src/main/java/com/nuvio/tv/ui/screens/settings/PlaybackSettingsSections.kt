@@ -25,12 +25,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
@@ -133,6 +135,9 @@ internal fun PlaybackSettingsSections(
     onSetOsdClockEnabled: (Boolean) -> Unit,
     onSetSkipIntroEnabled: (Boolean) -> Unit,
     onSetSeekPreviewEnabled: (Boolean) -> Unit,
+    seekPreviewCacheSizeBytes: Long = 0L,
+    onClearSeekPreviewCache: () -> Unit = {},
+    onSetSeekPreviewCacheLimitMb: (Int) -> Unit = {},
     onSetFrameRateMatchingMode: (FrameRateMatchingMode) -> Unit,
     onSetResolutionMatchingEnabled: (Boolean) -> Unit,
     onDisableAfrAndResolution: () -> Unit,
@@ -337,6 +342,34 @@ internal fun PlaybackSettingsSections(
                     onFocused = { focusedSection = PlaybackSection.GENERAL },
                     enabled = !generalUi.isExternalPlayer
                 )
+            }
+
+            if (playerSettings.seekPreviewEnabled && !generalUi.isExternalPlayer) {
+                item(key = "general_seek_preview_clear") {
+                    val cacheSubtitle = if (seekPreviewCacheSizeBytes > 0L) {
+                        stringResource(
+                            R.string.playback_seek_preview_cache_used,
+                            formatBytes(seekPreviewCacheSizeBytes)
+                        )
+                    } else {
+                        stringResource(R.string.playback_seek_preview_cache_empty)
+                    }
+                    NavigationSettingsItem(
+                        icon = Icons.Default.Delete,
+                        title = stringResource(R.string.playback_seek_preview_clear_cache),
+                        subtitle = cacheSubtitle,
+                        onClick = onClearSeekPreviewCache,
+                        onFocused = { focusedSection = PlaybackSection.GENERAL }
+                    )
+                }
+
+                item(key = "general_seek_preview_cache_limit") {
+                    SeekPreviewCacheLimitOptions(
+                        selectedLimitMb = playerSettings.seekPreviewCacheLimitMb,
+                        onSelect = onSetSeekPreviewCacheLimitMb,
+                        onFocused = { focusedSection = PlaybackSection.GENERAL }
+                    )
+                }
             }
 
             item(key = "general_afr_header") {
@@ -1129,6 +1162,39 @@ private fun InternalPlayerEngineDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+private fun formatBytes(bytes: Long): String {
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb < 1.0) "<1 MB" else "${mb.toInt()} MB"
+}
+
+@Composable
+private fun SeekPreviewCacheLimitOptions(
+    selectedLimitMb: Int,
+    onSelect: (Int) -> Unit,
+    onFocused: () -> Unit
+) {
+    val options = listOf(50, 100, 200)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.playback_seek_preview_cache_limit),
+            style = MaterialTheme.typography.bodyMedium,
+            color = NuvioColors.TextSecondary,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        options.forEachIndexed { index, mb ->
+            if (index > 0) Spacer(modifier = Modifier.height(6.dp))
+            RenderTypeSettingsItem(
+                title = "$mb MB",
+                subtitle = stringResource(R.string.playback_seek_preview_cache_limit_sub),
+                isSelected = selectedLimitMb == mb,
+                onClick = { onSelect(mb) },
+                onFocused = onFocused
+            )
         }
     }
 }

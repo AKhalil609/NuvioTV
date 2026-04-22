@@ -448,7 +448,6 @@ internal fun PlayerRuntimeController.initializePlayer(
 
                     override fun onRenderedFirstFrame() {
                         hasRenderedFirstFrame = true
-                        notePlaybackStartedForSeekPreview()
                         resetErrorRetryState()
                         // Restore speed after PCM fallback — audio sink is already
                         // configured in PCM mode and won't revert to passthrough.

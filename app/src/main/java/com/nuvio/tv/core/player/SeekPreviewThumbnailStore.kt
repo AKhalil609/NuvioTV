@@ -82,6 +82,10 @@ class SeekPreviewThumbnailStore(private val rootDir: File) {
 
     fun delete(key: String): Boolean = fileFor(key).delete()
 
+    fun clearAll() {
+        rootDir.listFiles { _, name -> name.endsWith(EXT) }?.forEach { it.delete() }
+    }
+
     fun totalBytes(): Long = rootDir.listFiles { _, name -> name.endsWith(EXT) }
         ?.sumOf { it.length() } ?: 0L
 

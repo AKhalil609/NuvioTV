@@ -52,7 +52,6 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         firstFrameReady = pos > 0L || (playingNow && !cacheBuffering && playerDuration > 0L)
                         if (firstFrameReady) {
                             hasRenderedFirstFrame = true
-                            notePlaybackStartedForSeekPreview()
                         }
                     }
                     if (playerDuration > lastKnownDuration) {

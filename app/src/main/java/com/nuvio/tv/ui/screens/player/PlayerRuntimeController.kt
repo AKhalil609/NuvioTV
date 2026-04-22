@@ -306,8 +306,8 @@ class PlayerRuntimeController(
 
     // Seek preview thumbnails (step 4 wiring)
     internal var seekPreviewEnabled: Boolean = false
+    internal var seekPreviewCacheBudgetBytes: Long = 200L * 1024L * 1024L
     internal var seekPreviewStartedForCurrentStream: Boolean = false
-    internal var seekPreviewPlaybackStartedAtMs: Long? = null
     internal var seekPreviewStateObserverJob: Job? = null
     internal var seekPreviewDisabledLogged: Boolean = false
 
