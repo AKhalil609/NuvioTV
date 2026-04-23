@@ -161,6 +161,7 @@ fun PlaybackSettingsContent(
     var showReuseLastLinkCacheDialog by remember { mutableStateOf(false) }
     var showPlayerPreferenceDialog by remember { mutableStateOf(false) }
     var showInternalPlayerEngineDialog by remember { mutableStateOf(false) }
+    var showSeekPreviewGenerationTypeDialog by remember { mutableStateOf(false) }
 
     fun dismissAllDialogs() {
         showLanguageDialog = false
@@ -182,6 +183,7 @@ fun PlaybackSettingsContent(
         showReuseLastLinkCacheDialog = false
         showPlayerPreferenceDialog = false
         showInternalPlayerEngineDialog = false
+        showSeekPreviewGenerationTypeDialog = false
     }
 
     fun openDialog(setter: () -> Unit) {
@@ -253,6 +255,7 @@ fun PlaybackSettingsContent(
                 onSetOsdClockEnabled = { enabled -> coroutineScope.launch { viewModel.setOsdClockEnabled(enabled) } },
                 onSetSkipIntroEnabled = { enabled -> coroutineScope.launch { viewModel.setSkipIntroEnabled(enabled) } },
                 onSetSeekPreviewEnabled = { enabled -> coroutineScope.launch { viewModel.setSeekPreviewEnabled(enabled) } },
+                onShowSeekPreviewGenerationTypeDialog = { openDialog { showSeekPreviewGenerationTypeDialog = true } },
                 seekPreviewCacheSizeBytes = seekPreviewCacheSizeBytes,
                 onClearSeekPreviewCache = { viewModel.clearSeekPreviewCache() },
                 onSetSeekPreviewCacheLimitMb = { mb -> coroutineScope.launch { viewModel.setSeekPreviewCacheLimitMb(mb) } },
@@ -311,6 +314,7 @@ fun PlaybackSettingsContent(
         showStreamRegexDialog = showStreamRegexDialog,
         showNextEpisodeThresholdModeDialog = showNextEpisodeThresholdModeDialog,
         showReuseLastLinkCacheDialog = showReuseLastLinkCacheDialog,
+        showSeekPreviewGenerationTypeDialog = showSeekPreviewGenerationTypeDialog,
         onSetPlayerPreference = { preference ->
             coroutineScope.launch { viewModel.setPlayerPreference(preference) }
         },
@@ -370,6 +374,9 @@ fun PlaybackSettingsContent(
         onSetReuseLastLinkCacheHours = { hours ->
             coroutineScope.launch { viewModel.setStreamReuseLastLinkCacheHours(hours) }
         },
+        onSetSeekPreviewGenerationType = { type ->
+            coroutineScope.launch { viewModel.setSeekPreviewGenerationType(type) }
+        },
         onDismissLanguageDialog = ::dismissAllDialogs,
         onDismissSecondaryLanguageDialog = ::dismissAllDialogs,
         onDismissSubtitleStartupModeDialog = ::dismissAllDialogs,
@@ -386,7 +393,8 @@ fun PlaybackSettingsContent(
         onDismissStreamAutoPlayAddonSelectionDialog = ::dismissAllDialogs,
         onDismissStreamAutoPlayPluginSelectionDialog = ::dismissAllDialogs,
         onDismissNextEpisodeThresholdModeDialog = ::dismissAllDialogs,
-        onDismissReuseLastLinkCacheDialog = ::dismissAllDialogs
+        onDismissReuseLastLinkCacheDialog = ::dismissAllDialogs,
+        onDismissSeekPreviewGenerationTypeDialog = ::dismissAllDialogs
     )
 }
 

@@ -178,6 +178,7 @@ data class PlayerSettings(
     val osdClockEnabled: Boolean = true,
     val skipIntroEnabled: Boolean = true,
     val seekPreviewEnabled: Boolean = false,
+    val seekPreviewGenerationType: SeekPreviewGenerationType = SeekPreviewGenerationType.SPARSE,
     val seekPreviewCacheLimitMb: Int = 200,
     // Dolby Vision Profile 7 → HEVC fallback (requires forked ExoPlayer)
     val mapDV7ToHevc: Boolean = false,
@@ -259,6 +260,13 @@ enum class InternalPlayerEngine {
     AUTO
 }
 
+enum class SeekPreviewGenerationType {
+    /** One frame every 3 minutes for the whole movie. Fast and lightweight. */
+    SPARSE,
+    /** One frame every 3 minutes, then fills gaps with one frame every 30 seconds. Detailed but slower. */
+    DETAILED
+}
+
 /**
  * Enum representing the different libass render types
  * Maps to io.github.peerless2012.ass.media.type.AssRenderType
@@ -311,6 +319,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val osdClockEnabledKey = booleanPreferencesKey("osd_clock_enabled")
     private val skipIntroEnabledKey = booleanPreferencesKey("skip_intro_enabled")
     private val seekPreviewEnabledKey = booleanPreferencesKey("seek_preview_enabled")
+    private val seekPreviewGenerationTypeKey = stringPreferencesKey("seek_preview_generation_type")
     private val seekPreviewCacheLimitMbKey = intPreferencesKey("seek_preview_cache_limit_mb")
     private val mapDV7ToHevcKey = booleanPreferencesKey("map_dv7_to_hevc")
     private val mpvHardwareDecodeModeKey = stringPreferencesKey("mpv_hardware_decode_mode")
@@ -463,6 +472,9 @@ class PlayerSettingsDataStore @Inject constructor(
                 osdClockEnabled = prefs[osdClockEnabledKey] ?: true,
                 skipIntroEnabled = prefs[skipIntroEnabledKey] ?: true,
                 seekPreviewEnabled = prefs[seekPreviewEnabledKey] ?: false,
+                seekPreviewGenerationType = prefs[seekPreviewGenerationTypeKey]?.let {
+                    runCatching { SeekPreviewGenerationType.valueOf(it) }.getOrDefault(SeekPreviewGenerationType.SPARSE)
+                } ?: SeekPreviewGenerationType.SPARSE,
                 seekPreviewCacheLimitMb = (prefs[seekPreviewCacheLimitMbKey] ?: 200).coerceIn(50, 200),
                 mapDV7ToHevc = prefs[mapDV7ToHevcKey] ?: false,
                 mpvHardwareDecodeMode = parseMpvHardwareDecodeMode(prefs[mpvHardwareDecodeModeKey]),
@@ -660,6 +672,12 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setSeekPreviewEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[seekPreviewEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setSeekPreviewGenerationType(type: SeekPreviewGenerationType) {
+        store().edit { prefs ->
+            prefs[seekPreviewGenerationTypeKey] = type.name
         }
     }
 

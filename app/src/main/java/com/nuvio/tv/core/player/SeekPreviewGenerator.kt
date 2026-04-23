@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.player
 
+import com.nuvio.tv.data.local.SeekPreviewGenerationType
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,18 +42,18 @@ class SeekPreviewGenerator(
     data class Config(
         val widthPx: Int = 160,
         val heightPx: Int = 90,
-        // 20 s spacing: 25% fewer frames than 15 s with no noticeable UX
-        // cost — D-pad scrub delta is 10 s, so the user crosses a bucket
-        // every couple of presses.
-        val intervalMs: Int = 20_000,
-        val jpegQuality: Int = 75,
+        // 30 s spacing: balanced for speed and scrub accuracy.
+        // Reduces total frame count by 33% compared to 20 s.
+        val intervalMs: Int = 30_000,
+        // 3 min spacing for the first pass: gives a rough preview for the
+        // whole movie in < 2 minutes.
+        val sparseIntervalMs: Int = 180_000,
+        val jpegQuality: Int = 60,
         // Widened to 1.5× intervalMs so the "nearest" lookup always finds
-        // a neighbour without the 30 s hard cap leaking through.
-        val nearestMaxDeltaMs: Long = 30_000L,
-        // 4 workers instead of 6. Fewer duplicate HTTP connections / moov
-        // reads per chunk on large MKVs; decoder parallelism is still
-        // saturated on typical TV hardware.
-        val workerCount: Int = 4,
+        // a neighbour.
+        val nearestMaxDeltaMs: Long = 45_000L,
+        // 6 workers to better saturate network latency over HTTP.
+        val workerCount: Int = 6,
         val chunkFraction: Double = 0.25,
         val shortVideoThresholdMs: Long = 5 * 60_000L
     )
@@ -62,7 +63,8 @@ class SeekPreviewGenerator(
         val url: String,
         val headers: Map<String, String>,
         val durationMs: Long,
-        val mimeTypeHint: String? = null
+        val mimeTypeHint: String? = null,
+        val generationType: SeekPreviewGenerationType = SeekPreviewGenerationType.SPARSE
     )
 
     sealed class State {
@@ -72,13 +74,15 @@ class SeekPreviewGenerator(
             val framesDone: Int,
             val framesTotal: Int,
             val chunkIndex: Int,
-            val totalChunks: Int
+            val totalChunks: Int,
+            val isSparse: Boolean = false
         ) : State()
         data class ChunkDone(
             val completedChunkIndex: Int,
             val totalChunks: Int,
             val hasMoreChunks: Boolean,
-            val generatedThroughMs: Long
+            val generatedThroughMs: Long,
+            val isSparse: Boolean = false
         ) : State()
         data object Done : State()
         data object Unsupported : State()
@@ -94,12 +98,13 @@ class SeekPreviewGenerator(
     private var currentChunkRanges: List<LongRange> = emptyList()
     private var currentAllTimestamps: List<Long> = emptyList()
     private var nextChunkIndex: Int = 0
+    private var totalChunksWithPasses: Int = 0
     private var job: Job? = null
 
     /**
      * Starts a new generation session for [input], cancelling any prior
-     * run. Runs the first chunk and stops. The returned [Job] completes
-     * when the first chunk finishes (or the run fails / is unsupported).
+     * run. Runs the first chunk (sparse pass if enabled) and stops.
+     * The returned [Job] completes when the first chunk finishes.
      */
     fun start(input: Input, scope: CoroutineScope): Job {
         synchronized(lock) {
@@ -109,6 +114,7 @@ class SeekPreviewGenerator(
             currentChunkRanges = emptyList()
             currentAllTimestamps = emptyList()
             nextChunkIndex = 0
+            totalChunksWithPasses = 0
             val launched = scope.launch(workDispatcher) {
                 runInitialAndFirstChunk(input)
             }
@@ -126,9 +132,8 @@ class SeekPreviewGenerator(
         synchronized(lock) {
             if (job?.isActive == true) return null
             val input = currentInput ?: return null
-            val ranges = currentChunkRanges
             val index = nextChunkIndex
-            if (ranges.isEmpty() || index >= ranges.size) return null
+            if (index >= totalChunksWithPasses) return null
             val launched = scope.launch(workDispatcher) {
                 runChunk(input, index)
             }
@@ -146,6 +151,7 @@ class SeekPreviewGenerator(
             currentChunkRanges = emptyList()
             currentAllTimestamps = emptyList()
             nextChunkIndex = 0
+            totalChunksWithPasses = 0
             _state.value = State.Idle
         }
     }
@@ -179,14 +185,20 @@ class SeekPreviewGenerator(
         )
         val allTs = buildTimestamps(input.durationMs, config.intervalMs.toLong())
         val ranges = computeChunkRanges(input.durationMs, config)
+        
+        val hasSparsePass = config.sparseIntervalMs > config.intervalMs
+        val total = ranges.size + (if (hasSparsePass) 1 else 0)
+
         synchronized(lock) {
             currentEntry = entry
             currentAllTimestamps = allTs
             currentChunkRanges = ranges
+            totalChunksWithPasses = total
         }
+
         if (entry.isCompleteThrough(input.durationMs) || allTs.isEmpty() || ranges.isEmpty()) {
             _state.value = State.Done
-            synchronized(lock) { nextChunkIndex = ranges.size }
+            synchronized(lock) { nextChunkIndex = total }
             return
         }
         runChunk(input, chunkIndex = 0)
@@ -196,20 +208,40 @@ class SeekPreviewGenerator(
         val entry = synchronized(lock) { currentEntry } ?: return
         val ranges = synchronized(lock) { currentChunkRanges }
         val allTs = synchronized(lock) { currentAllTimestamps }
-        if (chunkIndex !in ranges.indices) return
+        val total = synchronized(lock) { totalChunksWithPasses }
+        if (chunkIndex >= total) return
 
-        val range = ranges[chunkIndex]
-        val chunkTs = allTs.filter { it in range }
+        val hasSparsePass = config.sparseIntervalMs > config.intervalMs
+        val isSparse = hasSparsePass && chunkIndex == 0
+
+        if (!isSparse && input.generationType == SeekPreviewGenerationType.SPARSE) {
+            _state.value = State.Done
+            synchronized(lock) { nextChunkIndex = total }
+            return
+        }
+        
+        val chunkTs = if (isSparse) {
+            // First pass: 1 frame every sparseIntervalMs across the whole movie.
+            val step = (config.sparseIntervalMs / config.intervalMs).coerceAtLeast(1)
+            allTs.filterIndexed { i, _ -> i % step == 0 }
+        } else {
+            // Detailed passes: sequential chunks.
+            val rangeIndex = if (hasSparsePass) chunkIndex - 1 else chunkIndex
+            if (rangeIndex !in ranges.indices) return
+            val range = ranges[rangeIndex]
+            allTs.filter { it in range }
+        }
+
         val missing = chunkTs.filterNot { entry.hasTimestamp(it) }
         val totalInChunk = chunkTs.size
         val alreadyDone = totalInChunk - missing.size
         val doneCounter = AtomicInteger(alreadyDone)
-        emitGenerating(doneCounter.get(), totalInChunk, chunkIndex, ranges.size)
+        emitGenerating(doneCounter.get(), totalInChunk, chunkIndex, total, isSparse)
 
         val shards = shardTimestamps(missing, config.workerCount)
         val onFrameDone: () -> Unit = {
             val d = doneCounter.incrementAndGet()
-            emitGenerating(d, totalInChunk, chunkIndex, ranges.size)
+            emitGenerating(d, totalInChunk, chunkIndex, total, isSparse)
         }
 
         try {
@@ -220,23 +252,31 @@ class SeekPreviewGenerator(
                 }
             }
         } finally {
-            val watermark = lastContiguous(entry, allTs)
-            runCatching { entry.commit(watermark) }
+            // Watermark only advances via normal detailed chunks to maintain
+            // resume integrity. Sparse pass doesn't advance generatedThroughMs.
+            if (!isSparse) {
+                val watermark = lastContiguous(entry, allTs)
+                runCatching { entry.commit(watermark) }
+            } else {
+                // Just flush the frames to disk.
+                runCatching { entry.commit(entry.generatedThroughMs) }
+            }
         }
 
         synchronized(lock) { nextChunkIndex = chunkIndex + 1 }
 
         if (!coroutineContext.isActive) return
 
-        val hasMore = chunkIndex + 1 < ranges.size
+        val hasMore = chunkIndex + 1 < total
         _state.value = if (!hasMore) {
             State.Done
         } else {
             State.ChunkDone(
                 completedChunkIndex = chunkIndex,
-                totalChunks = ranges.size,
+                totalChunks = total,
                 hasMoreChunks = true,
-                generatedThroughMs = entry.generatedThroughMs
+                generatedThroughMs = entry.generatedThroughMs,
+                isSparse = isSparse
             )
         }
     }
@@ -272,12 +312,13 @@ class SeekPreviewGenerator(
         }
     }
 
-    private fun emitGenerating(done: Int, total: Int, chunkIndex: Int, totalChunks: Int) {
+    private fun emitGenerating(done: Int, total: Int, chunkIndex: Int, totalChunks: Int, isSparse: Boolean) {
         _state.value = State.Generating(
             framesDone = done,
             framesTotal = total,
             chunkIndex = chunkIndex,
-            totalChunks = totalChunks
+            totalChunks = totalChunks,
+            isSparse = isSparse
         )
     }
 

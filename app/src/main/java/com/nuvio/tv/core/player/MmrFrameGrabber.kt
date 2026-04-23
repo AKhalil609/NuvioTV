@@ -31,9 +31,10 @@ class MmrFrameGrabber : FrameGrabber {
     override fun grab(tsMs: Long, widthPx: Int, heightPx: Int, jpegQuality: Int): ByteArray? {
         val mmr = retriever ?: return null
         val timeUs = tsMs * 1000L
-        // OPTION_CLOSEST decodes forward from the previous keyframe to the
-        // exact requested position. Slower per frame than OPTION_CLOSEST_SYNC
-        // but gives a thumbnail whose content matches the scrub timestamp.
+        // OPTION_CLOSEST_SYNC snaps to the nearest keyframe — no forward
+        // decoding required. Thumbnails may be up to one keyframe interval
+        // (~2-4 s) off the exact scrub position, which is imperceptible for
+        // seek previews and gives a large speed improvement over HTTP streams.
         //
         // On API 27+ we ask the decoder to emit at our target resolution
         // directly — skips the full-resolution intermediate (2–5× faster
@@ -43,13 +44,13 @@ class MmrFrameGrabber : FrameGrabber {
                 runCatching {
                     mmr.getScaledFrameAtTime(
                         timeUs,
-                        MediaMetadataRetriever.OPTION_CLOSEST,
+                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
                         widthPx,
                         heightPx
                     )
                 }.getOrNull()
             } else null
-            scaled ?: mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)
+            scaled ?: mmr.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
         } catch (_: Throwable) {
             return null
         } ?: return null

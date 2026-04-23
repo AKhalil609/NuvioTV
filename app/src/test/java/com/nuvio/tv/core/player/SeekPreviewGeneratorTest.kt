@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.player
 
+import com.nuvio.tv.data.local.SeekPreviewGenerationType
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -77,8 +78,9 @@ class SeekPreviewGeneratorTest {
         key: String = "k1",
         url: String = "https://example.com/video.mp4",
         durationMs: Long = 60_000L,
-        mime: String? = null
-    ) = SeekPreviewGenerator.Input(key, url, emptyMap(), durationMs, mime)
+        mime: String? = null,
+        generationType: SeekPreviewGenerationType = SeekPreviewGenerationType.DETAILED
+    ) = SeekPreviewGenerator.Input(key, url, emptyMap(), durationMs, mime, generationType)
 
     private fun genWith(
         factory: FrameGrabberFactory,
@@ -91,6 +93,7 @@ class SeekPreviewGeneratorTest {
         workDispatcher = UnconfinedTestDispatcher(scheduler),
         config = SeekPreviewGenerator.Config(
             intervalMs = intervalMs,
+            sparseIntervalMs = 0, // Disable sparse pass for most tests
             workerCount = workers,
             chunkFraction = 0.25,
             shortVideoThresholdMs = 5 * 60_000L
@@ -346,6 +349,43 @@ class SeekPreviewGeneratorTest {
         // We should see frames grabbed for two distinct sessions: grabbers from
         // both runs have been closed.
         assertTrue(farm.all.all { it.closeCalls == 1 })
+    }
+
+    @Test
+    fun `two-pass strategy runs sparse then detailed`() = runTest {
+        val farm = GrabberFarm()
+        // 10 min movie.
+        // Detailed interval: 1 min (11 frames: 0, 1, ..., 10)
+        // Sparse interval: 5 min (3 frames: 0, 5, 10)
+        val gen = SeekPreviewGenerator(
+            store = store,
+            grabberFactory = farm,
+            workDispatcher = UnconfinedTestDispatcher(testScheduler),
+            config = SeekPreviewGenerator.Config(
+                intervalMs = 60_000,
+                sparseIntervalMs = 300_000,
+                workerCount = 1,
+                chunkFraction = 1.0 // Single detailed chunk for simplicity
+            )
+        )
+
+        gen.start(input(durationMs = 600_000L), scope = backgroundScope).join()
+
+        // After start(), only the sparse pass should have run (Chunk 0).
+        val s1 = gen.state.value as SeekPreviewGenerator.State.ChunkDone
+        assertEquals(0, s1.completedChunkIndex)
+        assertTrue(s1.isSparse)
+        // Sparse frames: 0, 300000, 600000
+        assertEquals(listOf(0L, 300_000L, 600_000L), farm.allGrabs())
+
+        // Run next chunk (the detailed pass).
+        gen.continueNextChunk(scope = backgroundScope)!!.join()
+        assertEquals(SeekPreviewGenerator.State.Done, gen.state.value)
+        
+        // Detailed frames should now be present (excluding those already grabbed by sparse).
+        // 0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600
+        val allExpected = (0..10).map { it * 60_000L }
+        assertEquals(allExpected, farm.allGrabs())
     }
 
     // ---- Pure helpers ----------------------------------------------------

@@ -306,6 +306,7 @@ class PlayerRuntimeController(
 
     // Seek preview thumbnails (step 4 wiring)
     internal var seekPreviewEnabled: Boolean = false
+    internal var seekPreviewGenerationType: com.nuvio.tv.data.local.SeekPreviewGenerationType = com.nuvio.tv.data.local.SeekPreviewGenerationType.SPARSE
     internal var seekPreviewCacheBudgetBytes: Long = 200L * 1024L * 1024L
     internal var seekPreviewStartedForCurrentStream: Boolean = false
     internal var seekPreviewStateObserverJob: Job? = null

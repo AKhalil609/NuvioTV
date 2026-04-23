@@ -16,11 +16,13 @@ private const val SEEK_PREVIEW_LOG_TAG = "SeekPreview"
 internal fun PlayerRuntimeController.observeSeekPreviewSettings() {
     scope.launch {
         playerSettingsDataStore.playerSettings.collectLatest { settings ->
-            val changed = seekPreviewEnabled != settings.seekPreviewEnabled
+            val changed = seekPreviewEnabled != settings.seekPreviewEnabled ||
+                seekPreviewGenerationType != settings.seekPreviewGenerationType
             seekPreviewEnabled = settings.seekPreviewEnabled
+            seekPreviewGenerationType = settings.seekPreviewGenerationType
             seekPreviewCacheBudgetBytes = settings.seekPreviewCacheLimitMb.toLong() * 1024L * 1024L
             if (changed) {
-                Log.i(SEEK_PREVIEW_LOG_TAG, "setting → enabled=${settings.seekPreviewEnabled}")
+                Log.i(SEEK_PREVIEW_LOG_TAG, "setting → enabled=${settings.seekPreviewEnabled} type=${settings.seekPreviewGenerationType}")
             }
         }
     }
@@ -119,7 +121,8 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
             url = url,
             headers = currentHeaders,
             durationMs = durationMs,
-            mimeTypeHint = currentStreamMimeType
+            mimeTypeHint = currentStreamMimeType,
+            generationType = seekPreviewGenerationType
         ),
         scope = scope
     )

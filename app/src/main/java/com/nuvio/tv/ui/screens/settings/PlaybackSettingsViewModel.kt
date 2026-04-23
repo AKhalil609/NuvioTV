@@ -149,6 +149,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setSeekPreviewEnabled(enabled)
     }
 
+    suspend fun setSeekPreviewGenerationType(type: com.nuvio.tv.data.local.SeekPreviewGenerationType) {
+        playerSettingsDataStore.setSeekPreviewGenerationType(type)
+    }
+
     suspend fun setSeekPreviewCacheLimitMb(mb: Int) {
         playerSettingsDataStore.setSeekPreviewCacheLimitMb(mb)
     }
