@@ -92,6 +92,9 @@ class MmrFrameGrabber : FrameGrabber {
         return if (ok) out.toByteArray() else null
     }
 
+    override fun sourceDurationMs(): Long? =
+        retriever?.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+
     override fun close() {
         val mmr = retriever ?: return
         retriever = null
@@ -102,3 +105,4 @@ class MmrFrameGrabber : FrameGrabber {
         override fun create(): FrameGrabber = MmrFrameGrabber()
     }
 }
+

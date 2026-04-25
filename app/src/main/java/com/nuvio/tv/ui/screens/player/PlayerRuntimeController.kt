@@ -311,6 +311,7 @@ class PlayerRuntimeController(
     internal var seekPreviewStartedForCurrentStream: Boolean = false
     internal var seekPreviewStateObserverJob: Job? = null
     internal var seekPreviewDisabledLogged: Boolean = false
+    internal val seekPreviewTriedSourceUrls: MutableSet<String> = mutableSetOf()
 
     internal var lastBufferLogTimeMs: Long = 0L
     

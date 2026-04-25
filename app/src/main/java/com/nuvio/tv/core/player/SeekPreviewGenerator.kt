@@ -90,6 +90,8 @@ class SeekPreviewGenerator(
         data object Done : State()
         data object Unsupported : State()
         data class Failed(val message: String) : State()
+        /** The probed source duration was too short — likely a debrid "not cached yet" clip. */
+        data class BadSource(val triedUrl: String) : State()
     }
 
     private val _state = MutableStateFlow<State>(State.Idle)
@@ -179,6 +181,18 @@ class SeekPreviewGenerator(
             return
         }
         _state.value = State.Probing
+
+        // Quick duration probe: open the source, read its container-level
+        // duration, then close. A "not cached yet" debrid error clip reports a
+        // duration of a few seconds to at most a minute; real content is always
+        // longer. This costs only one extra HTTP connection (moov-atom fetch)
+        // and prevents workers from connecting to a known-bad source.
+        val probedDuration = probeSourceDuration(input)
+        if (probedDuration != null && probedDuration < SHORT_SOURCE_THRESHOLD_MS) {
+            _state.value = State.BadSource(triedUrl = input.url)
+            return
+        }
+
         val entry = store.open(
             key = input.key,
             width = config.widthPx,
@@ -324,6 +338,18 @@ class SeekPreviewGenerator(
         }
     }
 
+    private suspend fun probeSourceDuration(input: Input): Long? {
+        val grabber = grabberFactory.create()
+        return try {
+            grabber.open(input.url, input.headers)
+            grabber.sourceDurationMs()
+        } catch (_: Throwable) {
+            null
+        } finally {
+            runCatching { grabber.close() }
+        }
+    }
+
     private fun emitGenerating(done: Int, total: Int, chunkIndex: Int, totalChunks: Int, isSparse: Boolean) {
         _state.value = State.Generating(
             framesDone = done,
@@ -346,6 +372,11 @@ class SeekPreviewGenerator(
         // HTTP can be 10–20 MB; 20 s is generous but prevents workers from
         // blocking indefinitely on a single timestamp.
         private const val FRAME_GRAB_TIMEOUT_MS = 20_000L
+
+        // Sources whose container-reported duration is shorter than this are
+        // treated as "not cached yet" error clips and skipped. Real movie/TV
+        // content is always longer than 1 minute.
+        internal const val SHORT_SOURCE_THRESHOLD_MS = 60_000L
 
         internal fun buildTimestamps(durationMs: Long, intervalMs: Long): List<Long> {
             if (durationMs <= 0L || intervalMs <= 0L) return emptyList()

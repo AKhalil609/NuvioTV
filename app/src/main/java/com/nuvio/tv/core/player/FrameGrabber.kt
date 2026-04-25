@@ -21,6 +21,14 @@ interface FrameGrabber {
      */
     fun grab(tsMs: Long, widthPx: Int, heightPx: Int, jpegQuality: Int): ByteArray?
 
+    /**
+     * Returns the total duration of the bound source in milliseconds, or
+     * null if the implementation doesn't support it or the source hasn't
+     * been opened yet. Used to detect "not cached yet" debrid error clips
+     * that report a suspiciously short duration.
+     */
+    fun sourceDurationMs(): Long? = null
+
     /** Releases native resources. Idempotent. */
     fun close()
 }

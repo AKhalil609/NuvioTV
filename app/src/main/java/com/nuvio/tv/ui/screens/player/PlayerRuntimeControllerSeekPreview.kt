@@ -74,6 +74,7 @@ internal fun PlayerRuntimeController.observeSeekPreviewGeneratorState() {
                 is SeekPreviewGenerator.State.Done,
                 is SeekPreviewGenerator.State.Unsupported,
                 is SeekPreviewGenerator.State.Failed,
+                is SeekPreviewGenerator.State.BadSource,
                 is SeekPreviewGenerator.State.ChunkDone -> {
                     Log.i(SEEK_PREVIEW_LOG_TAG, "state → $state")
                     lastLoggedFraction = -1
@@ -92,6 +93,17 @@ internal fun PlayerRuntimeController.observeSeekPreviewGeneratorState() {
                     }
                 }
                 SeekPreviewGenerator.State.Idle -> Unit
+            }
+
+            if (state is SeekPreviewGenerator.State.BadSource) {
+                // The selected source has a suspiciously short duration — likely a
+                // debrid "not cached yet" error clip. Exclude it and try the next
+                // best available MP4 source.
+                seekPreviewTriedSourceUrls.add(state.triedUrl)
+                seekPreviewStartedForCurrentStream = false
+                val duration = _playbackTimeline.value.duration
+                if (duration > 0L) startSeekPreviewIfReady(duration)
+                return@collect
             }
 
             if (state !is SeekPreviewGenerator.State.ChunkDone || !state.hasMoreChunks) return@collect
@@ -125,7 +137,7 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
     }
     val url = currentStreamUrl.takeIf { it.isNotBlank() } ?: return
 
-    val source = pickSeekPreviewSource(url)
+    val source = pickSeekPreviewSource(url, excluding = seekPreviewTriedSourceUrls)
     if (source == null) {
         val allStreams = _uiState.value.sourceAllStreams + _uiState.value.episodeAllStreams
         if (allStreams.isEmpty()) {
@@ -133,8 +145,9 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
             // observer will call us again once sourceAllStreams becomes non-empty.
             return
         }
-        // Streams loaded but no MP4 source available — skip permanently.
-        Log.i(SEEK_PREVIEW_LOG_TAG, "start skipped: no MP4 source in ${allStreams.size} streams")
+        // Streams loaded but no (remaining) MP4 source available — skip permanently.
+        val excludedNote = if (seekPreviewTriedSourceUrls.isNotEmpty()) " (${seekPreviewTriedSourceUrls.size} source(s) excluded as bad)" else ""
+        Log.i(SEEK_PREVIEW_LOG_TAG, "start skipped: no MP4 source in ${allStreams.size} streams$excludedNote")
         seekPreviewStartedForCurrentStream = true
         return
     }
@@ -215,7 +228,10 @@ private fun sourceScore(name: String, quality: Int): Int = when {
     else -> 3
 }
 
-private fun PlayerRuntimeController.pickSeekPreviewSource(currentUrl: String): SeekPreviewSource? {
+private fun PlayerRuntimeController.pickSeekPreviewSource(
+    currentUrl: String,
+    excluding: Set<String> = emptySet()
+): SeekPreviewSource? {
     val allStreams = _uiState.value.sourceAllStreams + _uiState.value.episodeAllStreams
 
     // Combined name: filename (most reliable) → URL last segment.
@@ -235,7 +251,7 @@ private fun PlayerRuntimeController.pickSeekPreviewSource(currentUrl: String): S
     val alternative = allStreams
         .mapNotNull { stream ->
             val url = stream.getStreamUrl() ?: return@mapNotNull null
-            if (url == currentUrl || !isMp4(stream, url) || effectiveQuality(stream, url) <= 0 || stream.isTorrent())
+            if (url == currentUrl || url in excluding || !isMp4(stream, url) || effectiveQuality(stream, url) <= 0 || stream.isTorrent())
                 return@mapNotNull null
             stream to url
         }
@@ -254,9 +270,9 @@ private fun PlayerRuntimeController.pickSeekPreviewSource(currentUrl: String): S
         )
     }
 
-    // Fall back to the main stream only if it is itself an MP4.
+    // Fall back to the main stream only if it is itself an MP4 and hasn't been tried already.
     val currentUrlIsMp4 = currentUrl.substringBefore('?').lowercase().endsWith(".mp4")
-    if (currentUrlIsMp4) {
+    if (currentUrlIsMp4 && currentUrl !in excluding) {
         return SeekPreviewSource(url = currentUrl, headers = currentHeaders, qualityValue = -1, videoSize = currentVideoSize)
     }
 
@@ -270,6 +286,7 @@ private fun PlayerRuntimeController.pickSeekPreviewSource(currentUrl: String): S
 internal fun PlayerRuntimeController.resetSeekPreviewForNewStream() {
     seekPreviewStartedForCurrentStream = false
     seekPreviewDisabledLogged = false
+    seekPreviewTriedSourceUrls.clear()
     seekPreviewGenerator.stop()
 }
 
