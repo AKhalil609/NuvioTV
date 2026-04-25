@@ -39,7 +39,7 @@ class MmrFrameGrabber : FrameGrabber {
         // On API 27+ we ask the decoder to emit at our target resolution
         // directly — skips the full-resolution intermediate (2–5× faster
         // on hardware decoders) and often uses hardware-assisted scaling.
-        val frame: Bitmap = try {
+        val raw: Bitmap = try {
             val scaled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 runCatching {
                     mmr.getScaledFrameAtTime(
@@ -54,6 +54,19 @@ class MmrFrameGrabber : FrameGrabber {
         } catch (_: Throwable) {
             return null
         } ?: return null
+
+        // HDR content (HDR10/HLG) produces RGBA_F16 bitmaps with linear-light
+        // values. JPEG encoding expects gamma-encoded sRGB, so compressing
+        // RGBA_F16 directly yields a near-black image. Convert to ARGB_8888
+        // (Android applies the colour-space conversion) before continuing.
+        val frame: Bitmap = if (raw.config == Bitmap.Config.RGBA_F16) {
+            val sdr = raw.copy(Bitmap.Config.ARGB_8888, false)
+            raw.recycle()
+            sdr ?: return null
+        } else {
+            raw
+        }
+
         // getScaledFrameAtTime may return at or near the requested
         // resolution but codec constraints can round. Skip the Java scale
         // pass only when dimensions match exactly; otherwise fall through.

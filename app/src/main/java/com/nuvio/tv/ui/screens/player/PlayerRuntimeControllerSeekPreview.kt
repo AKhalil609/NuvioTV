@@ -5,6 +5,8 @@ import com.nuvio.tv.core.player.SeekPreviewCacheKey
 import com.nuvio.tv.core.player.SeekPreviewGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private const val SEEK_PREVIEW_LOG_TAG = "SeekPreview"
@@ -23,8 +25,35 @@ internal fun PlayerRuntimeController.observeSeekPreviewSettings() {
             seekPreviewCacheBudgetBytes = settings.seekPreviewCacheLimitMb.toLong() * 1024L * 1024L
             if (changed) {
                 Log.i(SEEK_PREVIEW_LOG_TAG, "setting → enabled=${settings.seekPreviewEnabled} type=${settings.seekPreviewGenerationType}")
+                if (settings.seekPreviewEnabled) {
+                    // Pre-fetch streams so pickSeekPreviewSource has candidates
+                    // ready when generation starts. No-op on cache hit.
+                    loadSourceStreams(forceRefresh = false)
+                }
             }
         }
+    }
+}
+
+/**
+ * Retries [startSeekPreviewIfReady] when the source stream list first
+ * becomes non-empty. Handles the race where streams load after the
+ * player opens and duration is already known.
+ */
+internal fun PlayerRuntimeController.observeSourceStreamsForSeekPreview() {
+    scope.launch {
+        _uiState
+            .map { (it.sourceAllStreams + it.episodeAllStreams).isNotEmpty() }
+            .distinctUntilChanged()
+            .collect { nonEmpty ->
+                if (!nonEmpty) return@collect
+                // Streams just became available — retry start in case it was
+                // deferred waiting for an MP4 source.
+                if (!seekPreviewStartedForCurrentStream) {
+                    val duration = _playbackTimeline.value.duration
+                    if (duration > 0L) startSeekPreviewIfReady(duration)
+                }
+            }
     }
 }
 
@@ -96,6 +125,20 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
     }
     val url = currentStreamUrl.takeIf { it.isNotBlank() } ?: return
 
+    val source = pickSeekPreviewSource(url)
+    if (source == null) {
+        val allStreams = _uiState.value.sourceAllStreams + _uiState.value.episodeAllStreams
+        if (allStreams.isEmpty()) {
+            // Streams not loaded yet — defer silently. The observeSourceStreamsForSeekPreview
+            // observer will call us again once sourceAllStreams becomes non-empty.
+            return
+        }
+        // Streams loaded but no MP4 source available — skip permanently.
+        Log.i(SEEK_PREVIEW_LOG_TAG, "start skipped: no MP4 source in ${allStreams.size} streams")
+        seekPreviewStartedForCurrentStream = true
+        return
+    }
+
     val key = SeekPreviewCacheKey.compute(
         SeekPreviewCacheKey.Input(
             videoHash = currentVideoHash,
@@ -107,10 +150,19 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
         )
     )
     seekPreviewStartedForCurrentStream = true
+
+    fun formatSize(bytes: Long?) = bytes?.let { "%.2f GB".format(it / 1_073_741_824.0) } ?: "unknown"
+    fun formatDuration(ms: Long): String {
+        val h = ms / 3_600_000
+        val m = (ms % 3_600_000) / 60_000
+        val s = (ms % 60_000) / 1_000
+        return if (h > 0) "%dh %02dm %02ds".format(h, m, s) else "%dm %02ds".format(m, s)
+    }
     Log.i(
         SEEK_PREVIEW_LOG_TAG,
-        "start: key=$key durationMs=$durationMs mimeHint=$currentStreamMimeType " +
-            "urlHost=${url.substringBefore('?').substringAfter("://").substringBefore('/')}"
+        "start: key=$key\n" +
+            "  watching:   duration=${formatDuration(durationMs)}  size=${formatSize(currentVideoSize)}\n" +
+            "  thumbnails: duration=${formatDuration(durationMs)}  size=${formatSize(source.videoSize)}  source=${if (source.url == url) "main" else "alt=${source.qualityValue}p"}"
     )
     scope.launch(Dispatchers.IO) {
         runCatching { seekPreviewStore.trimLru(seekPreviewCacheBudgetBytes) }
@@ -118,14 +170,97 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
     seekPreviewGenerator.start(
         input = SeekPreviewGenerator.Input(
             key = key,
-            url = url,
-            headers = currentHeaders,
+            url = source.url,
+            headers = source.headers,
             durationMs = durationMs,
-            mimeTypeHint = currentStreamMimeType,
+            mimeTypeHint = null, // pickSeekPreviewSource already filters for .mp4 only
+
             generationType = seekPreviewGenerationType
         ),
         scope = scope
     )
+}
+
+private data class SeekPreviewSource(
+    val url: String,
+    val headers: Map<String, String>,
+    val qualityValue: Int,
+    val videoSize: Long? = null
+)
+
+// Parses quality from any name string (filename or URL path segment).
+private fun qualityFromName(name: String): Int {
+    val s = name.lowercase()
+    return when {
+        s.contains("2160p") || s.contains("4k") || s.contains("uhd") -> 2160
+        s.contains("1080p") || s.contains("1080i") -> 1080
+        s.contains("720p") -> 720
+        s.contains("480p") -> 480
+        s.contains("360p") -> 360
+        else -> -1
+    }
+}
+
+private fun isBluRay(name: String): Boolean {
+    val s = name.lowercase()
+    return s.contains("bluray") || s.contains("blu-ray") || s.contains("bdrip") || s.contains("brrip")
+}
+
+// Lower score = more preferred.
+// Priority: 1080p BluRay → 1080p → BluRay (any) → any MP4 (lowest quality)
+private fun sourceScore(name: String, quality: Int): Int = when {
+    quality == 1080 && isBluRay(name) -> 0
+    quality == 1080 -> 1
+    isBluRay(name) -> 2
+    else -> 3
+}
+
+private fun PlayerRuntimeController.pickSeekPreviewSource(currentUrl: String): SeekPreviewSource? {
+    val allStreams = _uiState.value.sourceAllStreams + _uiState.value.episodeAllStreams
+
+    // Combined name: filename (most reliable) → URL last segment.
+    fun streamName(stream: com.nuvio.tv.domain.model.Stream, url: String): String =
+        stream.behaviorHints?.filename
+            ?: url.substringBefore('?').substringAfterLast('/')
+
+    fun effectiveQuality(stream: com.nuvio.tv.domain.model.Stream, url: String): Int =
+        stream.qualityValue.takeIf { it > 0 } ?: qualityFromName(streamName(stream, url))
+
+    fun isMp4(stream: com.nuvio.tv.domain.model.Stream, url: String): Boolean {
+        val urlIsMp4 = url.substringBefore('?').lowercase().endsWith(".mp4")
+        val filenameIsMp4 = stream.behaviorHints?.filename?.lowercase()?.endsWith(".mp4") == true
+        return urlIsMp4 || filenameIsMp4
+    }
+
+    val alternative = allStreams
+        .mapNotNull { stream ->
+            val url = stream.getStreamUrl() ?: return@mapNotNull null
+            if (url == currentUrl || !isMp4(stream, url) || effectiveQuality(stream, url) <= 0 || stream.isTorrent())
+                return@mapNotNull null
+            stream to url
+        }
+        .minWithOrNull(compareBy(
+            { (s, u) -> sourceScore(streamName(s, u), effectiveQuality(s, u)) },
+            { (s, u) -> effectiveQuality(s, u) }
+        ))
+
+    if (alternative != null) {
+        val (stream, url) = alternative
+        return SeekPreviewSource(
+            url = url,
+            headers = stream.behaviorHints?.proxyHeaders?.request.orEmpty(),
+            qualityValue = effectiveQuality(stream, url),
+            videoSize = stream.behaviorHints?.videoSize
+        )
+    }
+
+    // Fall back to the main stream only if it is itself an MP4.
+    val currentUrlIsMp4 = currentUrl.substringBefore('?').lowercase().endsWith(".mp4")
+    if (currentUrlIsMp4) {
+        return SeekPreviewSource(url = currentUrl, headers = currentHeaders, qualityValue = -1, videoSize = currentVideoSize)
+    }
+
+    return null
 }
 
 /**

@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 import kotlin.math.ceil
@@ -51,9 +53,10 @@ class SeekPreviewGenerator(
         val jpegQuality: Int = 60,
         // Widened to 1.5× intervalMs so the "nearest" lookup always finds
         // a neighbour.
-        val nearestMaxDeltaMs: Long = 45_000L,
-        // 6 workers to better saturate network latency over HTTP.
-        val workerCount: Int = 6,
+        // Must be >= sparseIntervalMs/2 (90 s) so lookups always find a sparse
+        // frame. Dense frames (30 s interval, 15 s max gap) fit comfortably within this.
+        val nearestMaxDeltaMs: Long = 120_000L,
+        val workerCount: Int = 2,
         val chunkFraction: Double = 0.25,
         val shortVideoThresholdMs: Long = 5 * 60_000L
     )
@@ -301,9 +304,18 @@ class SeekPreviewGenerator(
             if (!opened) return
             for (ts in timestamps) {
                 if (!coroutineContext.isActive) break
-                val jpeg = runCatching {
-                    grabber.grab(ts, config.widthPx, config.heightPx, config.jpegQuality)
-                }.getOrNull()
+                // runInterruptible lets withTimeoutOrNull interrupt the
+                // blocking MMR call via thread interruption. For high-bitrate
+                // HTTP streams a single I-frame can stall a worker for tens of
+                // seconds; we skip the frame and move on rather than blocking
+                // the whole shard.
+                val jpeg = withTimeoutOrNull(FRAME_GRAB_TIMEOUT_MS) {
+                    runInterruptible {
+                        runCatching {
+                            grabber.grab(ts, config.widthPx, config.heightPx, config.jpegQuality)
+                        }.getOrNull()
+                    }
+                }
                 if (jpeg != null) entry.put(ts, jpeg)
                 onFrameDone()
             }
@@ -329,6 +341,11 @@ class SeekPreviewGenerator(
     }
 
     companion object {
+
+        // Skip frames that stall longer than this. High-bitrate I-frames over
+        // HTTP can be 10–20 MB; 20 s is generous but prevents workers from
+        // blocking indefinitely on a single timestamp.
+        private const val FRAME_GRAB_TIMEOUT_MS = 20_000L
 
         internal fun buildTimestamps(durationMs: Long, intervalMs: Long): List<Long> {
             if (durationMs <= 0L || intervalMs <= 0L) return emptyList()

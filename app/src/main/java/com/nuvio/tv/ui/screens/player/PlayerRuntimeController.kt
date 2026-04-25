@@ -389,6 +389,7 @@ class PlayerRuntimeController(
         observeDeviceLocalAspectMode()
         observeSeekPreviewSettings()
         observeSeekPreviewGeneratorState()
+        observeSourceStreamsForSeekPreview()
     }
 
     private fun observeTorrentSettings() {
