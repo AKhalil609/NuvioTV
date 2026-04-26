@@ -90,12 +90,20 @@ class SeekPreviewGenerator(
         data object Done : State()
         data object Unsupported : State()
         data class Failed(val message: String) : State()
-        /** The probed source duration was too short — likely a debrid "not cached yet" clip. */
+        /**
+         * The source cannot be used for seek-preview generation.
+         * [triedUrl] is the URL that was attempted (added to the exclusion set so
+         * the controller can retry with the next candidate).
+         */
         data class BadSource(val triedUrl: String) : State()
     }
 
     private val _state = MutableStateFlow<State>(State.Idle)
     val state: StateFlow<State> = _state.asStateFlow()
+
+    private val _cachedFractions = MutableStateFlow(floatArrayOf())
+    /** Fractional positions (0f–1f) of all thumbnails currently in cache. Updated at chunk-commit boundaries. */
+    val cachedFractions: StateFlow<FloatArray> = _cachedFractions.asStateFlow()
 
     private val lock = Any()
     private var currentEntry: SeekPreviewThumbnailStore.MovieEntry? = null
@@ -120,6 +128,7 @@ class SeekPreviewGenerator(
             currentAllTimestamps = emptyList()
             nextChunkIndex = 0
             totalChunksWithPasses = 0
+            _cachedFractions.value = floatArrayOf()
             val launched = scope.launch(workDispatcher) {
                 runInitialAndFirstChunk(input)
             }
@@ -158,6 +167,7 @@ class SeekPreviewGenerator(
             nextChunkIndex = 0
             totalChunksWithPasses = 0
             _state.value = State.Idle
+            _cachedFractions.value = floatArrayOf()
         }
     }
 
@@ -212,6 +222,10 @@ class SeekPreviewGenerator(
             currentChunkRanges = ranges
             totalChunksWithPasses = total
         }
+
+        // If we resumed from a cached file, emit existing ticks immediately so
+        // the progress bar shows them without waiting for generation to finish.
+        if (entry.size() > 0) updateCachedFractions(entry, input.durationMs)
 
         if (entry.isCompleteThrough(input.durationMs) || allTs.isEmpty() || ranges.isEmpty()) {
             _state.value = State.Done
@@ -278,6 +292,16 @@ class SeekPreviewGenerator(
                 // Just flush the frames to disk.
                 runCatching { entry.commit(entry.generatedThroughMs) }
             }
+            // Emit updated tick positions for the progress bar after each commit.
+            updateCachedFractions(entry, input.durationMs)
+        }
+
+        // If the sparse pass produced zero frames, the source failed frame extraction.
+        // Emit BadSource so the controller retries with the next candidate.
+        if (isSparse && entry.size() == 0) {
+            _state.value = State.BadSource(triedUrl = input.url)
+            synchronized(lock) { nextChunkIndex = total }
+            return
         }
 
         synchronized(lock) { nextChunkIndex = chunkIndex + 1 }
@@ -310,19 +334,15 @@ class SeekPreviewGenerator(
                 grabber.open(input.url, input.headers)
                 true
             } catch (_: Throwable) {
-                // Worker gave up silently; count its remaining frames as
-                // attempted so the overall progress counter can reach total.
                 repeat(timestamps.size) { onFrameDone() }
                 false
             }
             if (!opened) return
             for (ts in timestamps) {
                 if (!coroutineContext.isActive) break
-                // runInterruptible lets withTimeoutOrNull interrupt the
-                // blocking MMR call via thread interruption. For high-bitrate
-                // HTTP streams a single I-frame can stall a worker for tens of
-                // seconds; we skip the frame and move on rather than blocking
-                // the whole shard.
+                // runInterruptible lets withTimeoutOrNull cancel the blocking MMR call
+                // via thread interruption — prevents a stalled high-bitrate I-frame from
+                // blocking the shard indefinitely.
                 val jpeg = withTimeoutOrNull(FRAME_GRAB_TIMEOUT_MS) {
                     runInterruptible {
                         runCatching {
@@ -335,6 +355,14 @@ class SeekPreviewGenerator(
             }
         } finally {
             runCatching { grabber.close() }
+        }
+    }
+
+    private fun updateCachedFractions(entry: SeekPreviewThumbnailStore.MovieEntry, durationMs: Long) {
+        if (durationMs <= 0L) return
+        val keys = entry.cachedTimestampKeys()
+        _cachedFractions.value = FloatArray(keys.size) { i ->
+            (keys[i].toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
         }
     }
 

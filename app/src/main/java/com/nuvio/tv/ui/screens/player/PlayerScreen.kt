@@ -20,7 +20,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size as GeometrySize
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1775,6 +1778,7 @@ private fun PlayerControlsProgressBarHost(
     onFocused: (() -> Unit)? = null
 ) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+    val thumbnailFractions by viewModel.seekPreviewCachedFractions.collectAsState()
 
     ProgressBar(
         currentPosition = playbackTimeline.currentPosition,
@@ -1789,7 +1793,8 @@ private fun PlayerControlsProgressBarHost(
         upFocusRequester = upFocusRequester,
         downFocusRequester = downFocusRequester,
         onUpKey = onUpKey,
-        onFocused = onFocused
+        onFocused = onFocused,
+        thumbnailFractions = thumbnailFractions
     )
 }
 
@@ -1889,7 +1894,8 @@ private fun ProgressBar(
     upFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
     onUpKey: (() -> Unit)? = null,
-    onFocused: (() -> Unit)? = null
+    onFocused: (() -> Unit)? = null,
+    thumbnailFractions: FloatArray = floatArrayOf()
 ) {
     val progress = if (duration > 0) {
         (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
@@ -1992,6 +1998,19 @@ private fun ProgressBar(
                 .clip(RoundedCornerShape(3.dp))
                 .background(NuvioColors.Secondary)
         )
+        if (thumbnailFractions.isNotEmpty()) {
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val tickWidth = 2.dp.toPx()
+                for (fraction in thumbnailFractions) {
+                    val x = (fraction * size.width).coerceIn(0f, size.width - tickWidth)
+                    drawRect(
+                        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.4f),
+                        topLeft = Offset(x, 0f),
+                        size = GeometrySize(tickWidth, size.height)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -2001,6 +2020,8 @@ private fun SeekOverlay(
     currentPosition: Long,
     duration: Long
 ) {
+    val thumbnailFractions by viewModel.seekPreviewCachedFractions.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2012,7 +2033,8 @@ private fun SeekOverlay(
                 currentPosition = currentPosition,
                 duration = duration,
                 onSeekPreview = {},
-                onSeekCommit = {}
+                onSeekCommit = {},
+                thumbnailFractions = thumbnailFractions
             )
         }
 

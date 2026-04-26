@@ -6,11 +6,9 @@ import android.os.Build
 import java.io.ByteArrayOutputStream
 
 /**
- * [FrameGrabber] backed by [MediaMetadataRetriever]. Works well with
- * direct MP4/MKV sources that support HTTP Range requests — which is the
- * expected shape for debrid-resolved URLs. Adaptive manifests
- * (HLS/DASH) are not supported by MMR; callers should filter them out
- * before constructing a grabber.
+ * [FrameGrabber] backed by [MediaMetadataRetriever]. Designed for
+ * direct MP4 sources over HTTP Range requests (debrid-resolved URLs).
+ * HLS/DASH manifests are not supported; callers must filter them out.
  */
 class MmrFrameGrabber : FrameGrabber {
 
@@ -31,14 +29,9 @@ class MmrFrameGrabber : FrameGrabber {
     override fun grab(tsMs: Long, widthPx: Int, heightPx: Int, jpegQuality: Int): ByteArray? {
         val mmr = retriever ?: return null
         val timeUs = tsMs * 1000L
-        // OPTION_CLOSEST_SYNC snaps to the nearest keyframe — no forward
-        // decoding required. Thumbnails may be up to one keyframe interval
-        // (~2-4 s) off the exact scrub position, which is imperceptible for
-        // seek previews and gives a large speed improvement over HTTP streams.
-        //
-        // On API 27+ we ask the decoder to emit at our target resolution
-        // directly — skips the full-resolution intermediate (2–5× faster
-        // on hardware decoders) and often uses hardware-assisted scaling.
+        // OPTION_CLOSEST_SYNC snaps to the nearest keyframe — no forward decoding
+        // required. On API 27+ getScaledFrameAtTime decodes directly to the target
+        // resolution, skipping a full-resolution intermediate (2–5× faster).
         val raw: Bitmap = try {
             val scaled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 runCatching {
@@ -55,16 +48,23 @@ class MmrFrameGrabber : FrameGrabber {
             return null
         } ?: return null
 
-        // HDR content (HDR10/HLG) produces RGBA_F16 bitmaps with linear-light
-        // values. JPEG encoding expects gamma-encoded sRGB, so compressing
-        // RGBA_F16 directly yields a near-black image. Convert to ARGB_8888
-        // (Android applies the colour-space conversion) before continuing.
-        val frame: Bitmap = if (raw.config == Bitmap.Config.RGBA_F16) {
-            val sdr = raw.copy(Bitmap.Config.ARGB_8888, false)
-            raw.recycle()
-            sdr ?: return null
-        } else {
-            raw
+        // Non-ARGB_8888 configs (HDR10 MP4 → RGBA_F16, GPU-backed → HARDWARE,
+        // 10-bit wide-gamut → RGBA_1010102) must be converted before JPEG compression.
+        // Canvas draw applies color-managed gamma + gamut conversion to sRGB ARGB_8888.
+        val frame: Bitmap = when (raw.config) {
+            Bitmap.Config.ARGB_8888, Bitmap.Config.RGB_565 -> raw
+            else -> {
+                val sdr = Bitmap.createBitmap(raw.width, raw.height, Bitmap.Config.ARGB_8888)
+                try {
+                    android.graphics.Canvas(sdr).drawBitmap(raw, 0f, 0f, null)
+                } catch (_: Throwable) {
+                    sdr.recycle()
+                    raw.recycle()
+                    return null
+                }
+                raw.recycle()
+                sdr
+            }
         }
 
         // getScaledFrameAtTime may return at or near the requested
@@ -105,4 +105,3 @@ class MmrFrameGrabber : FrameGrabber {
         override fun create(): FrameGrabber = MmrFrameGrabber()
     }
 }
-

@@ -133,6 +133,9 @@ class SeekPreviewThumbnailStore(private val rootDir: File) {
 
         fun hasTimestamp(tsMs: Long): Boolean = synchronized(lock) { entries.containsKey(tsMs) }
 
+        /** Returns a sorted snapshot of all cached timestamp keys. Thread-safe. */
+        fun cachedTimestampKeys(): List<Long> = synchronized(lock) { entries.keys.toList() }
+
         fun isCompleteThrough(rangeEndMs: Long): Boolean =
             synchronized(lock) { _generatedThroughMs >= rangeEndMs }
 

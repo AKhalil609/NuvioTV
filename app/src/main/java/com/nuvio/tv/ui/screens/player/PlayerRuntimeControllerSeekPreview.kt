@@ -96,9 +96,6 @@ internal fun PlayerRuntimeController.observeSeekPreviewGeneratorState() {
             }
 
             if (state is SeekPreviewGenerator.State.BadSource) {
-                // The selected source has a suspiciously short duration — likely a
-                // debrid "not cached yet" error clip. Exclude it and try the next
-                // best available MP4 source.
                 seekPreviewTriedSourceUrls.add(state.triedUrl)
                 seekPreviewStartedForCurrentStream = false
                 val duration = _playbackTimeline.value.duration
@@ -175,7 +172,8 @@ internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
         SEEK_PREVIEW_LOG_TAG,
         "start: key=$key\n" +
             "  watching:   duration=${formatDuration(durationMs)}  size=${formatSize(currentVideoSize)}\n" +
-            "  thumbnails: duration=${formatDuration(durationMs)}  size=${formatSize(source.videoSize)}  source=${if (source.url == url) "main" else "alt=${source.qualityValue}p"}"
+            "  thumbnails: duration=${formatDuration(durationMs)}  size=${formatSize(source.videoSize)}  source=${if (source.url == url) "main" else "alt=${source.qualityValue}p"}\n" +
+            "  url: ${source.url}"
     )
     scope.launch(Dispatchers.IO) {
         runCatching { seekPreviewStore.trimLru(seekPreviewCacheBudgetBytes) }
@@ -220,7 +218,7 @@ private fun isBluRay(name: String): Boolean {
 }
 
 // Lower score = more preferred.
-// Priority: 1080p BluRay → 1080p → BluRay (any) → any MP4 (lowest quality)
+// Priority: 1080p BluRay → 1080p → BluRay (any) → any supported format (lowest quality)
 private fun sourceScore(name: String, quality: Int): Int = when {
     quality == 1080 && isBluRay(name) -> 0
     quality == 1080 -> 1
@@ -242,16 +240,16 @@ private fun PlayerRuntimeController.pickSeekPreviewSource(
     fun effectiveQuality(stream: com.nuvio.tv.domain.model.Stream, url: String): Int =
         stream.qualityValue.takeIf { it > 0 } ?: qualityFromName(streamName(stream, url))
 
-    fun isMp4(stream: com.nuvio.tv.domain.model.Stream, url: String): Boolean {
-        val urlIsMp4 = url.substringBefore('?').lowercase().endsWith(".mp4")
-        val filenameIsMp4 = stream.behaviorHints?.filename?.lowercase()?.endsWith(".mp4") == true
-        return urlIsMp4 || filenameIsMp4
+    fun isSupportedFormat(stream: com.nuvio.tv.domain.model.Stream, url: String): Boolean {
+        val path = url.substringBefore('?').lowercase()
+        val filename = stream.behaviorHints?.filename?.lowercase().orEmpty()
+        return path.endsWith(".mp4") || filename.endsWith(".mp4")
     }
 
     val alternative = allStreams
         .mapNotNull { stream ->
             val url = stream.getStreamUrl() ?: return@mapNotNull null
-            if (url == currentUrl || url in excluding || !isMp4(stream, url) || effectiveQuality(stream, url) <= 0 || stream.isTorrent())
+            if (url == currentUrl || url in excluding || !isSupportedFormat(stream, url) || effectiveQuality(stream, url) <= 0 || stream.isTorrent())
                 return@mapNotNull null
             stream to url
         }
@@ -270,9 +268,10 @@ private fun PlayerRuntimeController.pickSeekPreviewSource(
         )
     }
 
-    // Fall back to the main stream only if it is itself an MP4 and hasn't been tried already.
-    val currentUrlIsMp4 = currentUrl.substringBefore('?').lowercase().endsWith(".mp4")
-    if (currentUrlIsMp4 && currentUrl !in excluding) {
+    // Fall back to the main stream only if it is MP4 and hasn't been tried already.
+    val currentUrlPath = currentUrl.substringBefore('?').lowercase()
+    val currentUrlIsSupported = currentUrlPath.endsWith(".mp4")
+    if (currentUrlIsSupported && currentUrl !in excluding) {
         return SeekPreviewSource(url = currentUrl, headers = currentHeaders, qualityValue = -1, videoSize = currentVideoSize)
     }
 

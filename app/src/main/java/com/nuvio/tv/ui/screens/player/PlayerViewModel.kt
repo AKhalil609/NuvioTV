@@ -99,6 +99,10 @@ class PlayerViewModel @Inject constructor(
     val seekPreviewState: StateFlow<SeekPreviewGenerator.State>
         get() = seekPreviewGenerator.state
 
+    /** Fractional positions (0f–1f) of cached thumbnails for progress-bar tick marks. */
+    val seekPreviewCachedFractions: StateFlow<FloatArray>
+        get() = seekPreviewGenerator.cachedFractions
+
     /** Returns JPEG bytes for the cached preview nearest [tsMs], or null. */
     fun nearestSeekPreviewJpeg(tsMs: Long): ByteArray? =
         seekPreviewGenerator.nearestJpeg(tsMs)
