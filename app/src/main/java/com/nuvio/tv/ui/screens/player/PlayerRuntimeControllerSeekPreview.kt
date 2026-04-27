@@ -287,24 +287,17 @@ private fun extractReleaseGroup(name: String): String? {
 }
 
 // Lower score = more preferred.
-// Priority: same group → same type + platform → same type → same platform → quality tiers.
-private fun sourceScore(quality: Int, sameGroup: Boolean, sameType: Boolean, samePlatform: Boolean): Int = when {
-    sameGroup && sameType && samePlatform && quality == 1080 -> 0
-    sameGroup && sameType && samePlatform -> 1
-    sameGroup && sameType && quality == 1080 -> 2
-    sameGroup && sameType -> 3
-    sameGroup && samePlatform && quality == 1080 -> 4
-    sameGroup && samePlatform -> 5
-    sameGroup && quality == 1080 -> 6
-    sameGroup -> 7
-    sameType && samePlatform && quality == 1080 -> 8
-    sameType && samePlatform -> 9
-    sameType && quality == 1080 -> 10
-    sameType -> 11
-    samePlatform && quality == 1080 -> 12
-    samePlatform -> 13
-    quality == 1080 -> 14
-    else -> 15
+// Priority: same release group → same type + platform → same type → same platform → anything.
+// Quality is not part of the primary score — lower quality is preferred via the secondary sort.
+private fun sourceScore(sameGroup: Boolean, sameType: Boolean, samePlatform: Boolean): Int = when {
+    sameGroup && sameType && samePlatform -> 0
+    sameGroup && sameType -> 1
+    sameGroup && samePlatform -> 2
+    sameGroup -> 3
+    sameType && samePlatform -> 4
+    sameType -> 5
+    samePlatform -> 6
+    else -> 7
 }
 
 // Returns up to 10 MP4 alternative sources ranked by preference (best score first).
@@ -346,27 +339,29 @@ private fun PlayerRuntimeController.pickTopSeekPreviewSources(
     fun isSamePlatform(stream: com.nuvio.tv.domain.model.Stream, url: String): Boolean =
         currentPlatform != null && extractPlatformTag(streamName(stream, url)) == currentPlatform
 
-    return allStreams
+    val ranked = allStreams
         .mapNotNull { stream ->
             val url = stream.getStreamUrl() ?: return@mapNotNull null
-            if (url == currentUrl || url in excluding || !isSupportedFormat(stream, url) || effectiveQuality(stream, url) <= 0 || stream.isTorrent())
+            val q = effectiveQuality(stream, url)
+            if (url == currentUrl || url in excluding || !isSupportedFormat(stream, url) || q <= 0 || q > 1080 || stream.isTorrent())
                 return@mapNotNull null
             stream to url
         }
         .sortedWith(compareBy(
-            { (s, u) -> sourceScore(effectiveQuality(s, u), isSameGroup(s, u), isSameType(s, u), isSamePlatform(s, u)) },
+            { (s, u) -> sourceScore(isSameGroup(s, u), isSameType(s, u), isSamePlatform(s, u)) },
             { (s, u) -> effectiveQuality(s, u) }
         ))
         .distinctBy { (s, u) -> streamName(s, u).lowercase() }
         .take(10)
-        .map { (stream, url) ->
-            SeekPreviewSource(
-                url = url,
-                headers = stream.behaviorHints?.proxyHeaders?.request.orEmpty(),
-                qualityValue = effectiveQuality(stream, url),
-                videoSize = stream.behaviorHints?.videoSize
-            )
-        }
+
+    return ranked.map { (stream, url) ->
+        SeekPreviewSource(
+            url = url,
+            headers = stream.behaviorHints?.proxyHeaders?.request.orEmpty(),
+            qualityValue = effectiveQuality(stream, url),
+            videoSize = stream.behaviorHints?.videoSize
+        )
+    }
 }
 
 // Probes candidates in ranked order and returns the first whose duration is within

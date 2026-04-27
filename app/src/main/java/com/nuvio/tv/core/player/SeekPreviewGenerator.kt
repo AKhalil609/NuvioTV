@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,7 +59,11 @@ class SeekPreviewGenerator(
         val nearestMaxDeltaMs: Long = 120_000L,
         val workerCount: Int = 2,
         val chunkFraction: Double = 0.25,
-        val shortVideoThresholdMs: Long = 5 * 60_000L
+        val shortVideoThresholdMs: Long = 5 * 60_000L,
+        // Pause between frame grabs within a worker to prevent the background
+        // MediaMetadataRetriever from monopolising the hardware decoder and
+        // causing brief video blanks in the main ExoPlayer stream.
+        val interGrabDelayMs: Long = 500L
     )
 
     data class Input(
@@ -352,6 +357,7 @@ class SeekPreviewGenerator(
                 }
                 if (jpeg != null) entry.put(ts, jpeg)
                 onFrameDone()
+                if (config.interGrabDelayMs > 0L) delay(config.interGrabDelayMs)
             }
         } finally {
             runCatching { grabber.close() }
