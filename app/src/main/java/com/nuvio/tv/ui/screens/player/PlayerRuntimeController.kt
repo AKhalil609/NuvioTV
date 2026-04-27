@@ -310,6 +310,7 @@ class PlayerRuntimeController(
     internal var seekPreviewCacheBudgetBytes: Long = 200L * 1024L * 1024L
     internal var seekPreviewStartedForCurrentStream: Boolean = false
     internal var seekPreviewStateObserverJob: Job? = null
+    internal var seekPreviewProbeJob: Job? = null
     internal var seekPreviewDisabledLogged: Boolean = false
     internal val seekPreviewTriedSourceUrls: MutableSet<String> = mutableSetOf()
 

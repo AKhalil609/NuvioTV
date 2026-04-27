@@ -366,11 +366,17 @@ class SeekPreviewGenerator(
         }
     }
 
-    private suspend fun probeSourceDuration(input: Input): Long? {
+    private suspend fun probeSourceDuration(input: Input): Long? =
+        probeDurationMs(input.url, input.headers)
+
+    /** Opens [url] and reads its container-level duration. Returns null on any failure. */
+    suspend fun probeDurationMs(url: String, headers: Map<String, String>): Long? {
         val grabber = grabberFactory.create()
         return try {
-            grabber.open(input.url, input.headers)
-            grabber.sourceDurationMs()
+            runInterruptible {
+                grabber.open(url, headers)
+                grabber.sourceDurationMs()
+            }
         } catch (_: Throwable) {
             null
         } finally {
