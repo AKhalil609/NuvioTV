@@ -1,8 +1,8 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
-import com.nuvio.tv.core.player.SeekPreviewCacheKey
-import com.nuvio.tv.core.player.SeekPreviewGenerator
+import io.framescout.SeekPreviewCacheKey
+import io.framescout.SeekPreviewGenerator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.collectLatest
@@ -60,18 +60,11 @@ internal fun PlayerRuntimeController.observeSourceStreamsForSeekPreview() {
     }
 }
 
-/**
- * Watches the generator for chunk completions and advances to the next
- * chunk only when the 5-minute window since playback start hasn't
- * elapsed. Run once for the controller's lifetime.
- */
 internal fun PlayerRuntimeController.observeSeekPreviewGeneratorState() {
     seekPreviewStateObserverJob?.cancel()
     seekPreviewStateObserverJob = scope.launch {
         var lastLoggedFraction = -1
         seekPreviewGenerator.state.collect { state ->
-            // Log transitions and coarse progress so we can see the generator
-            // from logcat without spamming one line per frame.
             when (state) {
                 is SeekPreviewGenerator.State.Probing,
                 is SeekPreviewGenerator.State.Done,
@@ -118,25 +111,15 @@ internal fun PlayerRuntimeController.observeSeekPreviewGeneratorState() {
  * MMR (HLS/DASH/torrent stream).
  */
 internal fun PlayerRuntimeController.startSeekPreviewIfReady(durationMs: Long) {
-    if (!seekPreviewEnabled) {
-        if (!seekPreviewDisabledLogged) {
-            Log.i(SEEK_PREVIEW_LOG_TAG, "start skipped: setting disabled")
-            seekPreviewDisabledLogged = true
-        }
-        return
-    }
+    if (!seekPreviewEnabled) return
     if (seekPreviewStartedForCurrentStream) return
-    if (durationMs <= 0L) {
-        Log.i(SEEK_PREVIEW_LOG_TAG, "start skipped: durationMs=$durationMs not yet known")
-        return
-    }
+    if (durationMs <= 0L) return
     if (durationMs < MIN_DURATION_FOR_THUMBNAILS_MS) {
         Log.i(SEEK_PREVIEW_LOG_TAG, "start skipped: duration ${formatDuration(durationMs)} is under ${MIN_DURATION_FOR_THUMBNAILS_MS / 60_000} min threshold")
         seekPreviewStartedForCurrentStream = true
         return
     }
     if (isTorrentStream) {
-        Log.i(SEEK_PREVIEW_LOG_TAG, "start skipped: torrent stream")
         seekPreviewStartedForCurrentStream = true
         return
     }
@@ -402,7 +385,6 @@ internal fun PlayerRuntimeController.resetSeekPreviewForNewStream() {
     seekPreviewProbeJob?.cancel()
     seekPreviewProbeJob = null
     seekPreviewStartedForCurrentStream = false
-    seekPreviewDisabledLogged = false
     seekPreviewTriedSourceUrls.clear()
     seekPreviewGenerator.stop()
 }

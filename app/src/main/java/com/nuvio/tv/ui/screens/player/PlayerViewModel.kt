@@ -5,8 +5,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.ExoPlayer
-import com.nuvio.tv.core.player.SeekPreviewGenerator
-import com.nuvio.tv.core.player.SeekPreviewThumbnailStore
+import io.framescout.SeekPreviewGenerator
+import io.framescout.SeekPreviewThumbnailStore
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.torrent.TorrentService
 import com.nuvio.tv.core.torrent.TorrentSettings

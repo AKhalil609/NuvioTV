@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.local
 
+import io.framescout.SeekPreviewGenerationType
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -260,12 +261,6 @@ enum class InternalPlayerEngine {
     AUTO
 }
 
-enum class SeekPreviewGenerationType {
-    /** One frame every 3 minutes for the whole movie. Fast and lightweight. */
-    SPARSE,
-    /** One frame every 3 minutes, then fills gaps with one frame every 30 seconds. Detailed but slower. */
-    DETAILED
-}
 
 /**
  * Enum representing the different libass render types

@@ -1,10 +1,10 @@
 package com.nuvio.tv.core.di
 
 import android.content.Context
-import com.nuvio.tv.core.player.FrameGrabberFactory
-import com.nuvio.tv.core.player.MmrFrameGrabber
-import com.nuvio.tv.core.player.SeekPreviewGenerator
-import com.nuvio.tv.core.player.SeekPreviewThumbnailStore
+import io.framescout.FrameGrabberFactory
+import io.framescout.MmrFrameGrabber
+import io.framescout.SeekPreviewGenerator
+import io.framescout.SeekPreviewThumbnailStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

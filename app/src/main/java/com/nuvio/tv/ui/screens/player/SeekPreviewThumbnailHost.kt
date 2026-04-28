@@ -77,9 +77,6 @@ fun SeekPreviewThumbnailHost(
     val duration = timeline.duration.coerceAtLeast(1L)
     val fraction = (displayTs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
 
-    // Lookup + decode happens on timestamp changes. The store returns the
-    // same ByteArray reference for repeated lookups of the same nearest
-    // slot, so re-decodes are bounded to one per 20-second bucket.
     val jpegBytes = remember(lingerVisible, displayTs) {
         if (lingerVisible) viewModel.nearestSeekPreviewJpeg(displayTs) else null
     }

@@ -63,8 +63,8 @@ class PlayerRuntimeController(
     internal val tmdbService: com.nuvio.tv.core.tmdb.TmdbService,
     internal val tmdbMetadataService: com.nuvio.tv.core.tmdb.TmdbMetadataService,
     internal val tmdbSettingsDataStore: com.nuvio.tv.data.local.TmdbSettingsDataStore,
-    internal val seekPreviewGenerator: com.nuvio.tv.core.player.SeekPreviewGenerator,
-    internal val seekPreviewStore: com.nuvio.tv.core.player.SeekPreviewThumbnailStore,
+    internal val seekPreviewGenerator: io.framescout.SeekPreviewGenerator,
+    internal val seekPreviewStore: io.framescout.SeekPreviewThumbnailStore,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope
 ) {
@@ -306,12 +306,11 @@ class PlayerRuntimeController(
 
     // Seek preview thumbnails (step 4 wiring)
     internal var seekPreviewEnabled: Boolean = false
-    internal var seekPreviewGenerationType: com.nuvio.tv.data.local.SeekPreviewGenerationType = com.nuvio.tv.data.local.SeekPreviewGenerationType.SPARSE
+    internal var seekPreviewGenerationType: io.framescout.SeekPreviewGenerationType = io.framescout.SeekPreviewGenerationType.SPARSE
     internal var seekPreviewCacheBudgetBytes: Long = 200L * 1024L * 1024L
     internal var seekPreviewStartedForCurrentStream: Boolean = false
     internal var seekPreviewStateObserverJob: Job? = null
     internal var seekPreviewProbeJob: Job? = null
-    internal var seekPreviewDisabledLogged: Boolean = false
     internal val seekPreviewTriedSourceUrls: MutableSet<String> = mutableSetOf()
 
     internal var lastBufferLogTimeMs: Long = 0L

@@ -348,8 +348,8 @@ internal fun PlaybackSettingsSections(
             if (playerSettings.seekPreviewEnabled && !generalUi.isExternalPlayer) {
                 item(key = "general_seek_preview_generation_type") {
                     val typeLabel = when (playerSettings.seekPreviewGenerationType) {
-                        com.nuvio.tv.data.local.SeekPreviewGenerationType.SPARSE -> stringResource(R.string.playback_seek_preview_generation_type_sparse)
-                        com.nuvio.tv.data.local.SeekPreviewGenerationType.DETAILED -> stringResource(R.string.playback_seek_preview_generation_type_detailed)
+                        io.framescout.SeekPreviewGenerationType.SPARSE -> stringResource(R.string.playback_seek_preview_generation_type_sparse)
+                        io.framescout.SeekPreviewGenerationType.DETAILED -> stringResource(R.string.playback_seek_preview_generation_type_detailed)
                     }
                     NavigationSettingsItem(
                         icon = Icons.Default.SwapHoriz,
@@ -885,7 +885,7 @@ internal fun PlaybackSettingsDialogsHost(
     onSetStreamAutoPlaySelectedAddons: (Set<String>) -> Unit,
     onSetStreamAutoPlaySelectedPlugins: (Set<String>) -> Unit,
     onSetReuseLastLinkCacheHours: (Int) -> Unit,
-    onSetSeekPreviewGenerationType: (com.nuvio.tv.data.local.SeekPreviewGenerationType) -> Unit = {},
+    onSetSeekPreviewGenerationType: (io.framescout.SeekPreviewGenerationType) -> Unit = {},
     onDismissLanguageDialog: () -> Unit,
     onDismissSecondaryLanguageDialog: () -> Unit,
     onDismissSubtitleStartupModeDialog: () -> Unit,
@@ -1230,8 +1230,8 @@ private fun SeekPreviewCacheLimitOptions(
 
 @Composable
 private fun SeekPreviewGenerationTypeDialog(
-    currentType: com.nuvio.tv.data.local.SeekPreviewGenerationType,
-    onTypeSelected: (com.nuvio.tv.data.local.SeekPreviewGenerationType) -> Unit,
+    currentType: io.framescout.SeekPreviewGenerationType,
+    onTypeSelected: (io.framescout.SeekPreviewGenerationType) -> Unit,
     onDismiss: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -1242,12 +1242,12 @@ private fun SeekPreviewGenerationTypeDialog(
 
     val options = listOf(
         Triple(
-            com.nuvio.tv.data.local.SeekPreviewGenerationType.SPARSE,
+            io.framescout.SeekPreviewGenerationType.SPARSE,
             stringResource(R.string.playback_seek_preview_generation_type_sparse),
             stringResource(R.string.playback_seek_preview_generation_type_sparse_desc)
         ),
         Triple(
-            com.nuvio.tv.data.local.SeekPreviewGenerationType.DETAILED,
+            io.framescout.SeekPreviewGenerationType.DETAILED,
             stringResource(R.string.playback_seek_preview_generation_type_detailed),
             stringResource(R.string.playback_seek_preview_generation_type_detailed_desc)
         )

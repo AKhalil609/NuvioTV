@@ -2,7 +2,7 @@ package com.nuvio.tv.ui.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.nuvio.tv.core.player.SeekPreviewThumbnailStore
+import io.framescout.SeekPreviewThumbnailStore
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.data.local.LibassRenderType
 import com.nuvio.tv.data.local.InternalPlayerEngine
@@ -149,7 +149,7 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setSeekPreviewEnabled(enabled)
     }
 
-    suspend fun setSeekPreviewGenerationType(type: com.nuvio.tv.data.local.SeekPreviewGenerationType) {
+    suspend fun setSeekPreviewGenerationType(type: io.framescout.SeekPreviewGenerationType) {
         playerSettingsDataStore.setSeekPreviewGenerationType(type)
     }
 
