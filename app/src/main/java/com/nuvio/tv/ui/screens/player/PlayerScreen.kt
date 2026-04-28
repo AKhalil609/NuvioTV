@@ -68,7 +68,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -1461,6 +1463,13 @@ private fun PlayerControlsOverlay(
     val customAspectPainter = rememberRawSvgPainter(R.raw.ic_player_aspect_ratio)
     val customEpisodesPainter = rememberRawSvgPainter(R.raw.ic_player_episodes)
 
+    val isScrubbing = uiState.pendingPreviewSeekPosition != null
+    val osdAlpha by animateFloatAsState(
+        targetValue = if (isScrubbing) 0.25f else 1f,
+        animationSpec = tween(250),
+        label = "osdAlpha"
+    )
+
     Box(modifier = Modifier.fillMaxSize()) {
         // Top gradient
         Box(
@@ -1468,6 +1477,7 @@ private fun PlayerControlsOverlay(
                 .fillMaxWidth()
                 .height(150.dp)
                 .align(Alignment.TopCenter)
+                .alpha(osdAlpha)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
@@ -1484,6 +1494,7 @@ private fun PlayerControlsOverlay(
                 .fillMaxWidth()
                 .height(200.dp)
                 .align(Alignment.BottomCenter)
+                .alpha(osdAlpha)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
@@ -1503,7 +1514,7 @@ private fun PlayerControlsOverlay(
             val skipIntroVisible = uiState.activeSkipInterval != null
 
             AnimatedVisibility(
-                visible = !skipIntroVisible,
+                visible = !skipIntroVisible && !isScrubbing,
                 enter = fadeIn(animationSpec = tween(180)),
                 exit = fadeOut(animationSpec = tween(180))
             ) {
@@ -1579,7 +1590,20 @@ private fun PlayerControlsOverlay(
 
             // Progress bar — always LTR regardless of locale
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                SeekPreviewThumbnailHost(viewModel = viewModel)
+                // Measured at natural height but reports 0 to the column, so the
+                // title and buttons never shift. Content is placed above this slot
+                // (y = -height) so the thumbnail floats directly over the progress bar.
+                Box(modifier = Modifier
+                    .fillMaxWidth()
+                    .layout { measurable, constraints ->
+                        val placeable = measurable.measure(constraints)
+                        layout(placeable.width, 0) {
+                            placeable.placeRelative(0, -placeable.height)
+                        }
+                    }
+                ) {
+                    SeekPreviewThumbnailHost(viewModel = viewModel)
+                }
                 PlayerControlsProgressBarHost(
                     viewModel = viewModel,
                     focusRequester = progressBarFocusRequester,
@@ -1595,7 +1619,7 @@ private fun PlayerControlsOverlay(
             // Control buttons row — always LTR regardless of locale
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().alpha(osdAlpha),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
