@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -2089,6 +2090,19 @@ private fun PlayerControlsOverlay(
             if (!isLivePlayback) {
                 // Progress bar — always LTR regardless of locale
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    // Overlay previews without shifting the controls.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                layout(placeable.width, 0) {
+                                    placeable.placeRelative(0, -placeable.height)
+                                }
+                            }
+                    ) {
+                        SeekPreviewThumbnailHost(viewModel = viewModel)
+                    }
                     PlayerControlsProgressBarHost(
                         viewModel = viewModel,
                         focusRequester = progressBarFocusRequester,
@@ -2613,6 +2627,7 @@ private fun ProgressBar(
 
 @Composable
 private fun SeekOverlay(
+    viewModel: PlayerViewModel,
     currentPosition: Long,
     duration: Long,
     bufferedPosition: Long = 0L
@@ -2623,6 +2638,7 @@ private fun SeekOverlay(
             .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl)
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            SeekPreviewThumbnailHost(viewModel = viewModel)
             ProgressBar(
                 currentPosition = currentPosition,
                 duration = duration,
@@ -2653,6 +2669,7 @@ private fun SeekOverlayHost(viewModel: PlayerViewModel) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
 
     SeekOverlay(
+        viewModel = viewModel,
         currentPosition = playbackTimeline.currentPosition,
         duration = playbackTimeline.duration,
         bufferedPosition = playbackTimeline.bufferedPosition

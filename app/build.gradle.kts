@@ -428,6 +428,8 @@ dependencies {
     implementation(libs.moshi)
     ksp(libs.moshi.codegen)
 
+    implementation("tv.seekr:seekr-compose:0.1.5")
+
     // Coroutines
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)

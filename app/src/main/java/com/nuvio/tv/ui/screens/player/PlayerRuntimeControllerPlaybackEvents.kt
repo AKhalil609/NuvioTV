@@ -1209,9 +1209,9 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             updatePlaybackTimeline(currentPosition = target)
             if (_uiState.value.showControls) {
                 showControlsTemporarily()
-            } else {
-                showSeekOverlayTemporarily()
             }
+            // Showing controls clears this flag, so set it last.
+            showSeekOverlayTemporarily()
         }
         PlayerEvent.OnCommitPreviewSeek -> {
             if (_playbackTimeline.value.isLive) return
@@ -1223,9 +1223,8 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 scheduleProgressSyncAfterSeek()
                 if (_uiState.value.showControls) {
                     showControlsTemporarily()
-                } else {
-                    showSeekOverlayTemporarily()
                 }
+                showSeekOverlayTemporarily()
             }
         }
         is PlayerEvent.OnSeekTo -> {

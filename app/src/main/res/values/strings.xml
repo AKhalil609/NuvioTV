@@ -692,6 +692,12 @@
     <string name="playback_osd_clock">OSD Clock</string>
     <string name="playback_skip_intro">Skip Intro</string>
     <string name="playback_skip_intro_sub">Use introdb.app to detect intros and recaps.</string>
+    <string name="seek_preview_title">Seek Preview Thumbnails</string>
+    <string name="seek_preview_sub">Show a preview image while scrubbing, powered by seekr.tv. Requires an API key.</string>
+    <string name="seek_preview_key_not_set">Not set</string>
+    <string name="seek_preview_dialog_title">Seekr API Key</string>
+    <string name="seek_preview_dialog_subtitle">Get a free key at seekr.tv. Leave blank to turn seek previews off.</string>
+    <string name="seek_preview_dialog_placeholder">sk_live_…</string>
     <string name="playback_parental_guide">Content Warnings</string>
     <string name="playback_parental_guide_sub">Show parental guidance overlay when playback starts.</string>
     <string name="playback_auto_skip_segments">Automatic Skipping</string>
