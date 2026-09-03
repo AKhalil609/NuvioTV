@@ -101,7 +101,7 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "com.nuvio.tv"
+        applicationId = "com.akhalil609.nuviotv"
         minSdk = 24
         targetSdk = 36
         versionCode = 1053
@@ -145,7 +145,7 @@ android {
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
         // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"NuvioMedia\"")
+        buildConfigField("String", "GITHUB_OWNER", "\"AKhalil609\"")
         buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
     }
 
@@ -162,7 +162,7 @@ android {
         }
         create("playstore") {
             dimension = "distribution"
-            applicationId = "com.nuvio.app"
+            applicationId = "com.akhalil609.nuviotv.playstore"
             buildConfigField("boolean", "FEATURE_PLUGINS_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_IN_APP_UPDATES_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_IN_APP_TRAILERS_ENABLED", "false")
@@ -334,7 +334,13 @@ android {
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
-        variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+        variant.applicationId.set(
+            if (isPlaystore) {
+                "com.akhalil609.nuviotv.playstore.debug"
+            } else {
+                "com.akhalil609.nuviotv.debug"
+            }
+        )
     }
 }
 
@@ -427,6 +433,8 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.moshi)
     ksp(libs.moshi.codegen)
+
+    implementation("tv.seekr:seekr-compose:0.1.5")
 
     // Coroutines
     implementation(libs.coroutines.core)

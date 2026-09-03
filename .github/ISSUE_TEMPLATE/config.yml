@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Downloads / Releases
-    url: https://github.com/tapframe/NuvioTV/releases
+    url: https://github.com/AKhalil609/NuvioTV/releases
     about: Grab the latest GitHub Release APK here.
   - name: Documentation
-    url: https://github.com/tapframe/NuvioTV/blob/main/README.md
+    url: https://github.com/AKhalil609/NuvioTV/blob/dev/README.md
     about: Read the README for setup and usage details.

@@ -40,16 +40,25 @@ import com.nuvio.tv.data.repository.TraktRelatedService
 import com.nuvio.tv.data.trailer.TrailerService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.OkHttpClient
+import tv.seekr.previews.android.Seekr
+import tv.seekr.previews.android.SeekrTrack
 import javax.inject.Inject
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val okHttpClient: OkHttpClient,
     private val watchProgressRepository: WatchProgressRepository,
     private val metaRepository: MetaRepository,
     private val streamRepository: StreamRepository,
@@ -176,6 +185,26 @@ class PlayerViewModel @Inject constructor(
 
     val exoPlayer: ExoPlayer?
         get() = controller.exoPlayer
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val seekrTrack: StateFlow<SeekrTrack?> =
+        combine(
+            playerSettingsDataStore.playerSettings.map { it.seekrApiKey }.distinctUntilChanged(),
+            controller.playbackTimeline.map { it.duration }.distinctUntilChanged()
+        ) { apiKey: String, durationMs: Long -> apiKey to durationMs }
+            .mapLatest { (apiKey, durationMs) ->
+                if (apiKey.isBlank() || durationMs <= 0L) return@mapLatest null
+                val content = seekrContentFor(
+                    contentId = controller.contentId,
+                    contentType = controller.contentType,
+                    season = controller.currentSeason,
+                    episode = controller.currentEpisode
+                ) ?: return@mapLatest null
+                Seekr.create(apiKey, httpClient = okHttpClient)
+                    .loadTrack(content, durationMs)
+                    ?.also { it.prefetchSheets() }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun getCurrentStreamUrl(): String = controller.getCurrentStreamUrl()
 

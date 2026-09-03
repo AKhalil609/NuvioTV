@@ -3,24 +3,23 @@
   <img src="assets/brand/app_logo_wordmark.png" alt="Nuvio" width="300" />
 
   <p>
-    A free, open-source media app for your phone, your desktop, and the TV you already own.
+    An independent Nuvio TV fork with Seekr-powered seek-preview thumbnails.
     <br />
-    Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
+    Bring your own sources and preview video frames while seeking.
   </p>
 
-  [Website](https://nuvio.tv) · [GitHub releases](https://github.com/NuvioMedia/NuvioTV/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
+  [GitHub releases](https://github.com/AKhalil609/NuvioTV/releases/latest) · [Upstream project](https://github.com/NuvioMedia/NuvioTV)
 
 </div>
 
-## Get Nuvio TV
+## Get the app
 
-- [Android TV on Google Play](https://play.google.com/store/apps/details?id=com.nuvio.app)
-- [Android TV APK](https://github.com/NuvioMedia/NuvioTV/releases/latest)
+- [Download the latest Android TV APK](https://github.com/AKhalil609/NuvioTV/releases/latest)
 
 ## Build from source
 
 ```bash
-git clone https://github.com/NuvioMedia/NuvioTV.git
+git clone https://github.com/AKhalil609/NuvioTV.git
 cd NuvioTV
 ./gradlew :app:assembleFullDebug
 ```

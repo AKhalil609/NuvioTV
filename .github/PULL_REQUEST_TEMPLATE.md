@@ -7,6 +7,7 @@
 <!-- Check exactly one. PRs outside these types are not accepted. -->
 - [ ] Translation/localization only
 - [ ] Critical bug fix
+- [ ] Repository-owner-approved feature
 
 <!-- For translation/localization PRs: check the first box. In the "Reproduction steps" section write: "No reproduction steps - localization-only update." -->
 
@@ -16,8 +17,8 @@
 
 ## Issue or approval
 
-<!-- Required for critical bug fixes. Link the bug issue. For localization-only PRs with no issue, explain why no issue is needed. -->
-<!-- Examples: Fixes #123 / No linked issue: localization-only update. -->
+<!-- Link the issue or document repository-owner approval. -->
+<!-- Examples: Fixes #123 / Approved directly by the repository owner. -->
 
 ## Reproduction steps
 
@@ -37,14 +38,14 @@
 
 <!-- ALL boxes must be checked or the PR will be closed without review. -->
 - [ ] I have read and understood `CONTRIBUTING.md`.
-- [ ] This PR fits the current PR policy: localization/translation only or a critical bug fix.
-- [ ] This PR does not add features, UI changes, refactors, or other non-critical changes.
+- [ ] This PR fits the current PR policy.
+- [ ] Any feature or intentional UI/behavior change has explicit repository-owner approval.
 - [ ] This PR is small, focused, and limited to one issue.
 - [ ] This PR does not bundle unrelated refactors, cleanups, formatting, or drive-by changes.
 - [ ] This PR includes a linked issue, reproduction steps, and testing notes if it is a critical bug fix.
 - [ ] I listed the testing performed below.
 
-> Feature additions, feature requests, UI changes, refactors, and other non-critical changes may be closed or deferred without review while NuvioTV is being prepared for a stable release.
+> Feature additions and intentional UI/behavior changes require explicit repository-owner approval.
 
 ## Scope boundaries
 

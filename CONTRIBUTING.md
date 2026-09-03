@@ -22,8 +22,10 @@ Pull requests are accepted only for:
 
 - Localization/translation updates
 - Critical bug fixes with a linked issue, reproduction steps, and testing notes
+- Features explicitly approved by the repository owner for this fork
 
 Anything outside this scope may be closed or deferred without review.
+Approved features must document the approval and include testing notes and visual proof for UI changes.
 
 Currently open PRs are not automatically exempt from this policy. Only selected PRs may be considered internally if they directly support the stable release.
 
