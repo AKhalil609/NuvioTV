@@ -193,6 +193,9 @@ class PlayerViewModel @Inject constructor(
             controller.playbackTimeline.map { it.duration }.distinctUntilChanged()
         ) { apiKey: String, durationMs: Long -> apiKey to durationMs }
             .mapLatest { (apiKey, durationMs) ->
+                // A new track describes a different release, so any manual sync the user
+                // dialled in for the previous one is meaningless. Drop it.
+                controller.onEvent(PlayerEvent.OnSetSeekPreviewOffset(0))
                 if (apiKey.isBlank() || durationMs <= 0L) return@mapLatest null
                 val content = seekrContentFor(
                     contentId = controller.contentId,
@@ -202,9 +205,29 @@ class PlayerViewModel @Inject constructor(
                 ) ?: return@mapLatest null
                 Seekr.create(apiKey, httpClient = okHttpClient)
                     .loadTrack(content, durationMs)
-                    ?.also { it.prefetchSheets() }
+                    ?.also { track -> track.prefetchSheets() }
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * The duration gap between the release being played and the release the sprites were
+     * generated from, offered to the user as a starting point for the manual preview sync.
+     *
+     * It is deliberately **not** applied automatically. The backend anchors cue times 1:1 at
+     * the start of the title and returns `scale = 1` precisely because most duration gaps are
+     * a different credits/intro length wrapped around an identical body — for those the
+     * start-anchored timeline is already correct and shifting it by the gap makes every
+     * thumbnail wrong by that amount. Only the user can tell which case they are in, by
+     * looking at the picture.
+     */
+    val seekPreviewSuggestedOffsetMs: StateFlow<Long> =
+        combine(
+            seekrTrack,
+            controller.playbackTimeline.map { it.duration }.distinctUntilChanged()
+        ) { track, durationMs ->
+            val sourceDurationMs = track?.sourceDurationMs ?: 0L
+            if (sourceDurationMs > 0L && durationMs > 0L) sourceDurationMs - durationMs else 0L
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
     fun getCurrentStreamUrl(): String = controller.getCurrentStreamUrl()
 

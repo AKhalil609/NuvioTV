@@ -434,7 +434,7 @@ dependencies {
     implementation(libs.moshi)
     ksp(libs.moshi.codegen)
 
-    implementation("tv.seekr:seekr-compose:0.1.5")
+    implementation("tv.seekr:seekr-compose:0.2.0")
 
     // Coroutines
     implementation(libs.coroutines.core)

@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
@@ -35,7 +37,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import kotlinx.coroutines.delay
-import tv.seekr.previews.compose.SeekrThumbnail
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import android.graphics.Bitmap
 import java.util.concurrent.TimeUnit
 
 private val ThumbnailWidth = 176.dp
@@ -50,6 +54,7 @@ fun SeekPreviewThumbnailHost(
     val track by viewModel.seekrTrack.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val timeline by viewModel.playbackTimeline.collectAsStateWithLifecycle()
+    val activeTrack = track
 
     val previewTs = uiState.pendingPreviewSeekPosition
     val scrubActive = previewTs != null || uiState.showSeekOverlay
@@ -68,6 +73,23 @@ fun SeekPreviewThumbnailHost(
     val displayTs = previewTs ?: timeline.currentPosition
     val duration = timeline.duration.coerceAtLeast(1L)
     val fraction = (displayTs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    val offsetMs = uiState.seekPreviewOffsetMs.toLong()
+    var thumbnail by remember(activeTrack) { mutableStateOf<Bitmap?>(null) }
+    // Conflate rapid scrub/nudge changes so only the latest pair triggers a crop.
+    val requestFlow = remember(activeTrack) { MutableStateFlow(displayTs to offsetMs) }
+    LaunchedEffect(activeTrack, displayTs, offsetMs) {
+        requestFlow.value = displayTs to offsetMs
+    }
+    LaunchedEffect(activeTrack) {
+        requestFlow.collectLatest { (positionMs, offset) ->
+            val active = activeTrack ?: return@collectLatest
+            // Single writer for the track's offset: the manual sync correction is pushed in
+            // right before the lookup so a nudge is reflected on the very next frame.
+            active.offsetMs = offset
+            // Only overwrite on success — keeps the last good frame visible during a fetch.
+            active.thumbnailAt(positionMs)?.let { thumbnail = it }
+        }
+    }
 
     AnimatedVisibility(
         visible = lingerVisible && track != null,
@@ -97,12 +119,14 @@ fun SeekPreviewThumbnailHost(
                         .background(Color.Black)
                         .border(1.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
                 ) {
-                    SeekrThumbnail(
-                        track = track,
-                        positionMs = displayTs,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.size(ThumbnailWidth, ThumbnailHeight)
-                    )
+                    thumbnail?.let { bitmap ->
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(ThumbnailWidth, ThumbnailHeight)
+                        )
+                    }
                 }
                 Text(
                     text = formatScrubTime(displayTs),

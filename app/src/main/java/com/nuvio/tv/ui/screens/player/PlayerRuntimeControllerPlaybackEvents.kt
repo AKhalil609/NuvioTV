@@ -994,6 +994,7 @@ fun PlayerRuntimeController.scheduleHideControls() {
             !_uiState.value.showSubtitleOverlay && !_uiState.value.showSubtitleStylePanel &&
             !_uiState.value.showSpeedDialog && !_uiState.value.showMoreDialog &&
             !_uiState.value.showSubtitleDelayOverlay &&
+            !_uiState.value.showSeekPreviewSyncOverlay &&
             !_uiState.value.showSubtitleTimingDialog &&
             !_uiState.value.showEpisodesPanel && !_uiState.value.showSourcesPanel &&
             !_uiState.value.showStreamInfoOverlay) {
@@ -1087,6 +1088,40 @@ internal fun PlayerRuntimeController.scheduleHideSubtitleDelayOverlay() {
     }
 }
 
+internal fun PlayerRuntimeController.showSeekPreviewSyncOverlay() {
+    hideControlsJob?.cancel()
+    _uiState.update {
+        it.copy(
+            showControls = false,
+            showSeekOverlay = false,
+            showPauseOverlay = false,
+            showSeekPreviewSyncOverlay = true,
+            showMoreDialog = false,
+            showAudioOverlay = false,
+            showSubtitleOverlay = false,
+            showSubtitleStylePanel = false,
+            showSubtitleTimingDialog = false,
+            showSubtitleDelayOverlay = false,
+            showSpeedDialog = false
+        )
+    }
+}
+
+internal fun PlayerRuntimeController.hideSeekPreviewSyncOverlay() {
+    _uiState.update { it.copy(showSeekPreviewSyncOverlay = false) }
+}
+
+/**
+ * Sets the manual seek-preview sync correction. The value is only consumed by the preview
+ * thumbnail composables, which push it onto the active `SeekrTrack` before every lookup —
+ * nothing about playback changes, so this is safe to call at D-pad repeat rate.
+ */
+internal fun PlayerRuntimeController.setSeekPreviewOffsetMs(targetMs: Int) {
+    val clamped = targetMs.coerceIn(SEEK_PREVIEW_OFFSET_MIN_MS, SEEK_PREVIEW_OFFSET_MAX_MS)
+    if (_uiState.value.seekPreviewOffsetMs == clamped) return
+    _uiState.update { it.copy(seekPreviewOffsetMs = clamped) }
+}
+
 internal fun PlayerRuntimeController.schedulePauseOverlay() {
     pauseOverlayJob?.cancel()
 
@@ -1102,7 +1137,8 @@ internal fun PlayerRuntimeController.schedulePauseOverlay() {
         val anyPanelOpen = s.showSubtitleOverlay || s.showSubtitleStylePanel ||
             s.showSpeedDialog || s.showMoreDialog || s.showEpisodesPanel ||
             s.showSourcesPanel || s.showAudioOverlay || s.showStreamInfoOverlay ||
-            s.showSubtitleTimingDialog || s.showSubtitleDelayOverlay
+            s.showSubtitleTimingDialog || s.showSubtitleDelayOverlay ||
+            s.showSeekPreviewSyncOverlay
         if (!s.isPlaying && s.pauseOverlayEnabled && s.error == null && !anyPanelOpen) {
             _uiState.update { it.copy(showPauseOverlay = true, showControls = false) }
         }
@@ -1215,6 +1251,10 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         PlayerEvent.OnCommitPreviewSeek -> {
             if (_playbackTimeline.value.isLive) return
+            // Always commit to the position the user actually scrubbed to. Snapping to the
+            // preview cue's start would move the seek up to one cue interval (10s) away, and
+            // buys nothing while cue starts are still grid times rather than real keyframe
+            // times — the tile's frame is up to 3s from the cue start either way.
             val target = pendingPreviewSeekPosition
             if (target != null) {
                 seekPlaybackTo(target, SeekParameters.CLOSEST_SYNC)
@@ -1462,6 +1502,18 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         is PlayerEvent.OnResetSubtitleDelay -> {
             resetSubtitleDelay(event.showOverlay)
+        }
+        PlayerEvent.OnShowSeekPreviewSyncOverlay -> {
+            showSeekPreviewSyncOverlay()
+        }
+        PlayerEvent.OnHideSeekPreviewSyncOverlay -> {
+            hideSeekPreviewSyncOverlay()
+        }
+        is PlayerEvent.OnAdjustSeekPreviewOffset -> {
+            setSeekPreviewOffsetMs(_uiState.value.seekPreviewOffsetMs + event.deltaMs)
+        }
+        is PlayerEvent.OnSetSeekPreviewOffset -> {
+            setSeekPreviewOffsetMs(event.offsetMs)
         }
         PlayerEvent.OnShowSpeedDialog -> {
             val state = _uiState.value

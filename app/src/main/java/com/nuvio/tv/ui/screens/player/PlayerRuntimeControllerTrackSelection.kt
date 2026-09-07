@@ -27,6 +27,11 @@ internal fun PlayerRuntimeController.filterEpisodeStreamsByAddon(addonName: Stri
 }
 
 internal fun PlayerRuntimeController.showControlsTemporarily() {
+    // The preview-sync overlay is a comparison task that owns the screen until dismissed.
+    // Letting an async path (e.g. the pause overlay reacting to a key press) raise the
+    // controls underneath it would hide the panel while its flag stayed set, so Back would
+    // silently consume a press and the next one would exit the player.
+    if (_uiState.value.showSeekPreviewSyncOverlay) return
     hideSeekOverlayJob?.cancel()
     _uiState.update { it.copy(showControls = true, showSeekOverlay = false) }
     scheduleHideControls()
