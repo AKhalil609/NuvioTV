@@ -78,6 +78,12 @@ data class PlayerUiState(
     val showControls: Boolean = true,
     val showSeekOverlay: Boolean = false,
     val pendingPreviewSeekPosition: Long? = null,
+    /**
+     * Cue window (playback timebase) behind the preview frame currently on screen, or `null`
+     * while no preview has resolved. Drives grid-locked scrubbing and the scrubber's cue
+     * ticks — see [SeekPreviewCueStepper].
+     */
+    val previewCue: SeekPreviewCue? = null,
     val showSeekPreviewSyncOverlay: Boolean = false,
     /**
      * Manual seek-preview sync correction, in milliseconds, applied to the position before
@@ -306,9 +312,17 @@ sealed class PlayerEvent {
     data object OnHideSubtitleDelayOverlay : PlayerEvent()
     data class OnAdjustSubtitleDelay(val deltaMs: Int, val showOverlay: Boolean = true) : PlayerEvent()
     data class OnResetSubtitleDelay(val showOverlay: Boolean = true) : PlayerEvent()
-    data object OnShowSeekPreviewSyncOverlay : PlayerEvent()    data object OnHideSeekPreviewSyncOverlay : PlayerEvent()
+    data object OnShowSeekPreviewSyncOverlay : PlayerEvent()
+    data object OnHideSeekPreviewSyncOverlay : PlayerEvent()
     data class OnAdjustSeekPreviewOffset(val deltaMs: Int) : PlayerEvent()
     data class OnSetSeekPreviewOffset(val offsetMs: Int) : PlayerEvent()
+
+    /**
+     * Reported by the preview thumbnail composable once it knows which cue window the frame
+     * it just rendered was drawn from. Not a user interaction — it fires at scrub rate and
+     * must never reset the controls/overlay timeouts.
+     */
+    data class OnPreviewCueResolved(val cue: SeekPreviewCue?) : PlayerEvent()
     data object OnShowSpeedDialog : PlayerEvent()
     data object OnShowMoreDialog : PlayerEvent()
     data object OnDismissMoreDialog : PlayerEvent()

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -26,26 +27,74 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import android.graphics.Bitmap
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
-private val ThumbnailWidth = 176.dp
-private val ThumbnailHeight = 99.dp
+private val CenterWidth = 176.dp
+private val CenterHeight = 99.dp
+private val NeighborWidth = 104.dp
+private val NeighborHeight = 59.dp
+private val FrameGap = 6.dp
+private val StripWidth = CenterWidth + (NeighborWidth + FrameGap) * 2
 private const val LingerAfterScrubMs = 1500L
 
+/**
+ * Distance beyond which the frame on screen is admitted to describe a different moment than
+ * the scrub position. Grid-locked scrubbing normally keeps the two identical, so the
+ * disclosure only appears where we genuinely cannot guarantee agreement.
+ */
+private const val FrameLabelToleranceMs = 1_000L
+
+/**
+ * The frames rendered by [SeekPreviewThumbnailHost]: the cue covering the scrub position plus
+ * its two immediate neighbours.
+ *
+ * [neighborsOwnerCueStartMs] pins the neighbours to the centre cue they were resolved for. The
+ * centre is published as soon as it crops so the frame the user asked for is never gated on
+ * context, which briefly leaves the previous neighbours in place; rendering them only while
+ * they still belong to the current centre keeps that from showing a mismatched strip.
+ */
+private data class SeekPreviewFrames(
+    val center: Bitmap? = null,
+    val centerCueStartMs: Long? = null,
+    val previous: Bitmap? = null,
+    val previousCueStartMs: Long? = null,
+    val next: Bitmap? = null,
+    val nextCueStartMs: Long? = null,
+    val neighborsOwnerCueStartMs: Long? = null
+) {
+    val neighborsMatchCenter: Boolean
+        get() = centerCueStartMs != null && neighborsOwnerCueStartMs == centerCueStartMs
+}
+
+/**
+ * The scrub-time preview: a three-frame strip centred on the cue the playhead sits in.
+ *
+ * Sprite sheets hold one frame per ~10 second cue, so a single thumbnail cannot say whether a
+ * cut happens just out of shot — the failure users actually feel is landing in the wrong
+ * scene, not being a few seconds out. Showing the neighbouring cues makes the granularity
+ * self-evident and turns scrubbing into reading a sequence, which is what hunting for a scene
+ * needs. It also lets the position label stay a single honest number, because grid-locked
+ * scrubbing (see [SeekPreviewCueStepper]) parks the playhead on the centre frame's own
+ * timestamp.
+ */
 @Composable
 fun SeekPreviewThumbnailHost(
     viewModel: PlayerViewModel,
@@ -74,20 +123,53 @@ fun SeekPreviewThumbnailHost(
     val duration = timeline.duration.coerceAtLeast(1L)
     val fraction = (displayTs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
     val offsetMs = uiState.seekPreviewOffsetMs.toLong()
-    var thumbnail by remember(activeTrack) { mutableStateOf<Bitmap?>(null) }
+    var frames by remember(activeTrack) { mutableStateOf(SeekPreviewFrames()) }
     // Conflate rapid scrub/nudge changes so only the latest pair triggers a crop.
     val requestFlow = remember(activeTrack) { MutableStateFlow(displayTs to offsetMs) }
     LaunchedEffect(activeTrack, displayTs, offsetMs) {
         requestFlow.value = displayTs to offsetMs
     }
     LaunchedEffect(activeTrack) {
+        if (activeTrack == null) {
+            viewModel.onEvent(PlayerEvent.OnPreviewCueResolved(null))
+            return@LaunchedEffect
+        }
+        // The host stays composed while the controls are up, so the playhead alone would
+        // re-crop three bitmaps every progress tick for a frame that cannot have changed.
+        var resolvedCue: SeekPreviewCue? = null
+        var resolvedOffsetMs: Long? = null
         requestFlow.collectLatest { (positionMs, offset) ->
-            val active = activeTrack ?: return@collectLatest
+            if (offset == resolvedOffsetMs && resolvedCue?.contains(positionMs) == true) {
+                return@collectLatest
+            }
             // Single writer for the track's offset: the manual sync correction is pushed in
             // right before the lookup so a nudge is reflected on the very next frame.
-            active.offsetMs = offset
+            activeTrack.offsetMs = offset
             // Only overwrite on success — keeps the last good frame visible during a fetch.
-            active.thumbnailAt(positionMs)?.let { thumbnail = it }
+            val center = activeTrack.thumbnailFor(positionMs) ?: return@collectLatest
+            // Cue times arrive on the preview timeline; undo the sync offset so they can be
+            // compared with, and assigned to, playback positions.
+            val centerStartMs = center.cueStartMs - offset
+            val centerEndMs = center.cueEndMs - offset
+            frames = frames.copy(center = center.bitmap, centerCueStartMs = centerStartMs)
+            val cue = SeekPreviewCue(centerStartMs, centerEndMs)
+            resolvedCue = cue
+            resolvedOffsetMs = offset
+            viewModel.onEvent(PlayerEvent.OnPreviewCueResolved(cue))
+
+            // A lookup that clamps at either end of the track resolves back to the centre cue;
+            // dropping those keeps the strip from showing the same frame twice.
+            val previous = activeTrack.thumbnailFor(centerStartMs - 1)
+                ?.takeIf { it.cueStartMs != center.cueStartMs }
+            val next = activeTrack.thumbnailFor(centerEndMs)
+                ?.takeIf { it.cueStartMs != center.cueStartMs }
+            frames = frames.copy(
+                previous = previous?.bitmap,
+                previousCueStartMs = previous?.let { it.cueStartMs - offset },
+                next = next?.bitmap,
+                nextCueStartMs = next?.let { it.cueStartMs - offset },
+                neighborsOwnerCueStartMs = centerStartMs
+            )
         }
     }
 
@@ -100,31 +182,54 @@ fun SeekPreviewThumbnailHost(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(ThumbnailHeight + 28.dp)
+                .height(CenterHeight + 46.dp)
         ) {
-            val left = previewOffset(maxWidth, ThumbnailWidth, fraction)
+            // Below this width the strip would be clipped by the scrubber's own bounds, so
+            // fall back to the single frame rather than showing a cropped filmstrip.
+            val showNeighbors = maxWidth >= StripWidth
+            val stripWidth = if (showNeighbors) StripWidth else CenterWidth
+            val left = previewOffset(maxWidth, stripWidth, fraction)
+            val frameTs = frames.centerCueStartMs
+            val showFrameLabel = frameTs != null && abs(frameTs - displayTs) > FrameLabelToleranceMs
 
             Column(
                 modifier = Modifier
                     .offset(x = left)
-                    .width(ThumbnailWidth)
+                    .width(stripWidth)
                     .align(Alignment.TopStart),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(ThumbnailWidth, ThumbnailHeight)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.Black)
-                        .border(1.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(FrameGap),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    thumbnail?.let { bitmap ->
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.size(ThumbnailWidth, ThumbnailHeight)
+                    if (showNeighbors) {
+                        NeighborFrame(
+                            bitmap = frames.previous.takeIf { frames.neighborsMatchCenter },
+                            timeMs = frames.previousCueStartMs.takeIf { frames.neighborsMatchCenter }
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(CenterWidth, CenterHeight)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black)
+                            .border(1.dp, Color.White.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                    ) {
+                        frames.center?.let { bitmap ->
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(CenterWidth, CenterHeight)
+                            )
+                        }
+                    }
+                    if (showNeighbors) {
+                        NeighborFrame(
+                            bitmap = frames.next.takeIf { frames.neighborsMatchCenter },
+                            timeMs = frames.nextCueStartMs.takeIf { frames.neighborsMatchCenter }
                         )
                     }
                 }
@@ -137,8 +242,54 @@ fun SeekPreviewThumbnailHost(
                         .background(Color.Black.copy(alpha = 0.55f))
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 )
+                if (showFrameLabel && frameTs != null) {
+                    Text(
+                        text = stringResource(
+                            R.string.player_seek_preview_frame_at,
+                            formatScrubTime(frameTs)
+                        ),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+                }
             }
         }
+    }
+}
+
+/**
+ * A dimmed context frame either side of the centre cue, labelled with the moment it holds so
+ * the size of the gap between previews is visible rather than implied.
+ */
+@Composable
+private fun NeighborFrame(bitmap: Bitmap?, timeMs: Long?) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier.width(NeighborWidth)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(NeighborWidth, NeighborHeight)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color.Black.copy(alpha = 0.6f))
+        ) {
+            bitmap?.let {
+                Image(
+                    bitmap = it.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(NeighborWidth, NeighborHeight)
+                        .alpha(0.45f)
+                )
+            }
+        }
+        Text(
+            text = timeMs?.let(::formatScrubTime).orEmpty(),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+            color = Color.White.copy(alpha = 0.55f)
+        )
     }
 }
 

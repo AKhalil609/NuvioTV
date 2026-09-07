@@ -229,6 +229,17 @@ class PlayerViewModel @Inject constructor(
             if (sourceDurationMs > 0L && durationMs > 0L) sourceDurationMs - durationMs else 0L
         }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
 
+    /**
+     * Spacing between seek-preview cues, in milliseconds, or 0 when no preview has resolved.
+     * Narrowed out of [uiState] so the scrubber — which already redraws on every progress
+     * tick — is not also recomposed by unrelated player state.
+     */
+    val seekPreviewCueIntervalMs: StateFlow<Long> =
+        uiState
+            .map { it.previewCue?.durationMs ?: 0L }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
     fun getCurrentStreamUrl(): String = controller.getCurrentStreamUrl()
 
     fun getCurrentHeaders(): Map<String, String> = controller.getCurrentHeaders()

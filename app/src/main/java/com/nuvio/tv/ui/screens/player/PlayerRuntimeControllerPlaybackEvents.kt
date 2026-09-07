@@ -1119,7 +1119,9 @@ internal fun PlayerRuntimeController.hideSeekPreviewSyncOverlay() {
 internal fun PlayerRuntimeController.setSeekPreviewOffsetMs(targetMs: Int) {
     val clamped = targetMs.coerceIn(SEEK_PREVIEW_OFFSET_MIN_MS, SEEK_PREVIEW_OFFSET_MAX_MS)
     if (_uiState.value.seekPreviewOffsetMs == clamped) return
-    _uiState.update { it.copy(seekPreviewOffsetMs = clamped) }
+    // The cached cue window was converted to the playback timebase with the old offset, so it
+    // is stale the moment the offset moves. The next preview resolution republishes it.
+    _uiState.update { it.copy(seekPreviewOffsetMs = clamped, previewCue = null) }
 }
 
 internal fun PlayerRuntimeController.schedulePauseOverlay() {
@@ -1166,7 +1168,9 @@ fun PlayerRuntimeController.hideControls() {
 }
 
 fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
-    if (event != PlayerEvent.OnParentalGuideHide) {
+    // OnPreviewCueResolved is reported by the preview composable at scrub rate, not pressed by
+    // the user — treating it as interaction would keep the controls alive indefinitely.
+    if (event != PlayerEvent.OnParentalGuideHide && event !is PlayerEvent.OnPreviewCueResolved) {
         onUserInteraction()
     }
     when (event) {
@@ -1238,9 +1242,15 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             if (_playbackTimeline.value.isLive) return
             val maxDuration = currentPlaybackDurationMs().takeIf { it >= 0 } ?: Long.MAX_VALUE
             val basePosition = pendingPreviewSeekPosition ?: currentPlaybackPositionMs()?.coerceAtLeast(0L) ?: 0L
-            val target = (basePosition + event.deltaMs)
-                .coerceAtLeast(0L)
-                .coerceAtMost(maxDuration)
+            // Grid-locked scrubbing: land on a position an actual preview frame exists for,
+            // so the thumbnail and the eventual seek can never disagree. Falls back to the
+            // raw delta whenever no cue describes the current position.
+            val target = SeekPreviewCueStepper.targetMs(
+                cue = _uiState.value.previewCue,
+                fromMs = basePosition,
+                deltaMs = event.deltaMs,
+                durationMs = maxDuration
+            )
             pendingPreviewSeekPosition = target
             updatePlaybackTimeline(currentPosition = target)
             if (_uiState.value.showControls) {
@@ -1249,12 +1259,26 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             // Showing controls clears this flag, so set it last.
             showSeekOverlayTemporarily()
         }
+        is PlayerEvent.OnPreviewCueResolved -> {
+            _uiState.update { it.copy(previewCue = event.cue) }
+            // The resolved cue start is the timestamp the frame on screen actually represents.
+            // Snapping the pending position onto it keeps the number under the thumbnail
+            // honest even when the cue grid is not perfectly uniform.
+            if (_playbackTimeline.value.isLive) return
+            val maxDuration = currentPlaybackDurationMs().takeIf { it >= 0 } ?: Long.MAX_VALUE
+            val aligned = SeekPreviewCueStepper.alignedTargetMs(
+                cue = event.cue,
+                pendingMs = pendingPreviewSeekPosition,
+                durationMs = maxDuration
+            ) ?: return
+            pendingPreviewSeekPosition = aligned
+            updatePlaybackTimeline(currentPosition = aligned)
+        }
         PlayerEvent.OnCommitPreviewSeek -> {
             if (_playbackTimeline.value.isLive) return
-            // Always commit to the position the user actually scrubbed to. Snapping to the
-            // preview cue's start would move the seek up to one cue interval (10s) away, and
-            // buys nothing while cue starts are still grid times rather than real keyframe
-            // times — the tile's frame is up to 3s from the cue start either way.
+            // Commit to exactly what the scrubber showed. Grid-locked stepping has already
+            // parked the pending position on a cue start, so this both honours the displayed
+            // time and lands on the frame the user was looking at — no hidden re-snapping.
             val target = pendingPreviewSeekPosition
             if (target != null) {
                 seekPlaybackTo(target, SeekParameters.CLOSEST_SYNC)

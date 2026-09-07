@@ -1693,6 +1693,7 @@
     <string name="player_seek_preview_sync_hint">Nudge until the thumbnail matches the frame playing behind this panel.</string>
     <string name="player_seek_preview_sync_keys">Left/Right adjust · OK resets · Down uses the suggested value · Up or Back closes</string>
     <string name="player_seek_preview_sync_suggested">Suggested: %1$s (duration gap vs. the preview source)</string>
+    <string name="player_seek_preview_frame_at">frame %1$s</string>
     <string name="cd_seek_preview_sync">Preview sync</string>
     <string name="player_error_title">Playback Error</string>
     <string name="player_go_back">Go Back</string>

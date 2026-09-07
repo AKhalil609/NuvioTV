@@ -28,6 +28,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -85,6 +86,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -2346,6 +2348,7 @@ private fun PlayerControlsProgressBarHost(
     onFocused: (() -> Unit)? = null
 ) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+    val cueIntervalMs by viewModel.seekPreviewCueIntervalMs.collectAsState()
 
     ProgressBar(
         currentPosition = playbackTimeline.currentPosition,
@@ -2361,7 +2364,8 @@ private fun PlayerControlsProgressBarHost(
         downFocusRequester = downFocusRequester,
         onUpKey = onUpKey,
         onFocused = onFocused,
-        bufferedPosition = playbackTimeline.bufferedPosition
+        bufferedPosition = playbackTimeline.bufferedPosition,
+        cueIntervalMs = cueIntervalMs
     )
 }
 
@@ -2522,6 +2526,12 @@ private fun ControlButton(
     }
 }
 
+/** Ticks closer than this are noise rather than information, so the grid is hidden instead. */
+private val MIN_CUE_TICK_SPACING = 5.dp
+
+/** Upper bound on tick count, so a long title cannot turn the scrubber into a solid block. */
+private const val MAX_CUE_TICKS = 400L
+
 @Composable
 private fun ProgressBar(
     currentPosition: Long,
@@ -2534,7 +2544,12 @@ private fun ProgressBar(
     onUpKey: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null,
     /** Position (ms) up to which content is buffered. Pass 0 to skip the overlay. */
-    bufferedPosition: Long = 0L
+    bufferedPosition: Long = 0L,
+    /**
+     * Spacing (ms) between seek-preview cues, or 0 when unknown. Ticks are drawn at cue
+     * boundaries so the scrubber shows where grid-locked scrubbing can actually stop.
+     */
+    cueIntervalMs: Long = 0L
 ) {
     val accentBrush = ThemeColors.getColorPalette(NuvioTheme.currentTheme).accentBrush()
     val progress = if (duration > 0) {
@@ -2671,6 +2686,29 @@ private fun ProgressBar(
                 .clip(RoundedCornerShape(3.dp))
                 .background(accentBrush)
         )
+        // Cue ticks, drawn last so they stay legible over the played fill. Suppressed once
+        // they would be denser than the eye can separate — at that point the 10s grid is a
+        // rounding error on the bar anyway, and the preview strip carries the granularity.
+        if (cueIntervalMs > 0L && duration > 0L) {
+            val tickCount = duration / cueIntervalMs
+            val tickSpacing = if (tickCount > 0L) trackWidth / tickCount.toFloat() else 0.dp
+            if (tickCount in 2..MAX_CUE_TICKS && tickSpacing >= MIN_CUE_TICK_SPACING) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val stepPx = size.width * (cueIntervalMs.toFloat() / duration.toFloat())
+                    if (stepPx <= 0f) return@Canvas
+                    var x = stepPx
+                    while (x < size.width) {
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.28f),
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        x += stepPx
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2681,6 +2719,7 @@ private fun SeekOverlay(
     duration: Long,
     bufferedPosition: Long = 0L
 ) {
+    val cueIntervalMs by viewModel.seekPreviewCueIntervalMs.collectAsState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2693,7 +2732,8 @@ private fun SeekOverlay(
                 duration = duration,
                 onSeekPreview = {},
                 onSeekCommit = {},
-                bufferedPosition = bufferedPosition
+                bufferedPosition = bufferedPosition,
+                cueIntervalMs = cueIntervalMs
             )
 
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))

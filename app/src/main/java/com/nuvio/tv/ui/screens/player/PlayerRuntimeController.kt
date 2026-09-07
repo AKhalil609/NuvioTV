@@ -327,6 +327,8 @@ class PlayerRuntimeController(
         livePlaybackLatched = false
         liveWatchClock.reset()
         pendingPreviewSeekPosition = null
+        // The cue window describes the previous media's preview timeline.
+        _uiState.update { it.copy(previewCue = null) }
         _playbackTimeline.value = PlaybackTimelineState()
     }
 
