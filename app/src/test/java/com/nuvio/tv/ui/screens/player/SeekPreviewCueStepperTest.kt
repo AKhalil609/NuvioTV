@@ -1,7 +1,9 @@
 package com.nuvio.tv.ui.screens.player
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SeekPreviewCueStepperTest {
@@ -93,6 +95,55 @@ class SeekPreviewCueStepperTest {
             duration,
             SeekPreviewCueStepper.targetMs(last, fromMs = duration, deltaMs = 10_000L, durationMs = duration)
         )
+    }
+
+    /**
+     * The user's report: at 18:29 the covering cue holds an 18:20 frame, but 18:30 is one
+     * second away. The preview centres on the nearer frame, so stepping must be measured from
+     * that frame — one press, one filmstrip frame — rather than nudging onto the frame already
+     * on screen.
+     */
+    @Test
+    fun `stepping is measured from the frame the preview is showing`() {
+        val shown = SeekPreviewCue(startMs = 1_110_000L, endMs = 1_120_000L) // 18:30..18:40
+        val at1829 = 1_109_000L
+        assertEquals(
+            1_120_000L,
+            SeekPreviewCueStepper.targetMs(shown, fromMs = at1829, deltaMs = 10_000L, durationMs = duration)
+        )
+        assertEquals(
+            1_100_000L,
+            SeekPreviewCueStepper.targetMs(shown, fromMs = at1829, deltaMs = -10_000L, durationMs = duration)
+        )
+    }
+
+    @Test
+    fun `a cue represents positions from its own midpoint back`() {
+        // 18:30..18:40 takes over from 18:25 onwards; before that 18:20's frame is closer.
+        val shown = SeekPreviewCue(startMs = 1_110_000L, endMs = 1_120_000L)
+        assertTrue(shown.represents(1_105_000L))
+        assertTrue(shown.represents(1_109_000L))
+        assertTrue(shown.represents(1_119_999L))
+        assertFalse(shown.represents(1_104_999L))
+        assertFalse(shown.represents(1_120_000L))
+    }
+
+    @Test
+    fun `alignment snaps onto the frame being shown rather than the covering cue`() {
+        val shown = SeekPreviewCue(startMs = 1_110_000L, endMs = 1_120_000L)
+        assertEquals(
+            1_110_000L,
+            SeekPreviewCueStepper.alignedTargetMs(shown, pendingMs = 1_109_000L, durationMs = duration)
+        )
+    }
+
+    @Test
+    fun `a cue hands the centre over to its successor at its own midpoint`() {
+        val covering = SeekPreviewCue(startMs = 1_100_000L, endMs = 1_110_000L) // 18:20..18:30
+        assertFalse(covering.prefersSuccessorFor(1_100_000L))
+        assertFalse(covering.prefersSuccessorFor(1_105_000L)) // exact midpoint keeps its own frame
+        assertTrue(covering.prefersSuccessorFor(1_105_001L))
+        assertTrue(covering.prefersSuccessorFor(1_109_000L)) // 18:29 -> shows the 18:30 frame
     }
 
     @Test

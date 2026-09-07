@@ -136,31 +136,64 @@ fun SeekPreviewThumbnailHost(
         }
         // The host stays composed while the controls are up, so the playhead alone would
         // re-crop three bitmaps every progress tick for a frame that cannot have changed.
-        var resolvedCue: SeekPreviewCue? = null
-        var resolvedOffsetMs: Long? = null
+        // Caching the *inputs* to the re-centring decision below — the covering cue and which
+        // side of its midpoint the position falls — replays that decision exactly, so the
+        // cache expires precisely when the centre frame is due to hand over to its successor.
+        var cachedCovering: SeekPreviewCue? = null
+        var cachedPrefersSuccessor = false
+        var cachedOffsetMs: Long? = null
         requestFlow.collectLatest { (positionMs, offset) ->
-            if (offset == resolvedOffsetMs && resolvedCue?.contains(positionMs) == true) {
+            val covering = cachedCovering
+            if (offset == cachedOffsetMs &&
+                covering != null &&
+                covering.contains(positionMs) &&
+                covering.prefersSuccessorFor(positionMs) == cachedPrefersSuccessor
+            ) {
                 return@collectLatest
             }
             // Single writer for the track's offset: the manual sync correction is pushed in
             // right before the lookup so a nudge is reflected on the very next frame.
             activeTrack.offsetMs = offset
             // Only overwrite on success — keeps the last good frame visible during a fetch.
-            val center = activeTrack.thumbnailFor(positionMs) ?: return@collectLatest
+            val coveringThumbnail = activeTrack.thumbnailFor(positionMs) ?: return@collectLatest
             // Cue times arrive on the preview timeline; undo the sync offset so they can be
             // compared with, and assigned to, playback positions.
+            val coveringCue = SeekPreviewCue(
+                startMs = coveringThumbnail.cueStartMs - offset,
+                endMs = coveringThumbnail.cueEndMs - offset
+            )
+
+            // The SDK resolves the cue *containing* the position, but a cue's frame is captured
+            // at its start — so past the halfway mark the next cue's frame is the closer one.
+            // Centring on it is what makes the strip read symmetrically around the playhead.
+            val prefersSuccessor = coveringCue.prefersSuccessorFor(positionMs)
+            val successor = if (prefersSuccessor) {
+                activeTrack.thumbnailFor(coveringCue.endMs)
+                    ?.takeIf { it.cueStartMs != coveringThumbnail.cueStartMs }
+            } else {
+                null
+            }
+            cachedCovering = coveringCue
+            cachedPrefersSuccessor = prefersSuccessor
+            cachedOffsetMs = offset
+
+            val center = successor ?: coveringThumbnail
             val centerStartMs = center.cueStartMs - offset
             val centerEndMs = center.cueEndMs - offset
             frames = frames.copy(center = center.bitmap, centerCueStartMs = centerStartMs)
-            val cue = SeekPreviewCue(centerStartMs, centerEndMs)
-            resolvedCue = cue
-            resolvedOffsetMs = offset
-            viewModel.onEvent(PlayerEvent.OnPreviewCueResolved(cue))
+            viewModel.onEvent(
+                PlayerEvent.OnPreviewCueResolved(SeekPreviewCue(centerStartMs, centerEndMs))
+            )
 
             // A lookup that clamps at either end of the track resolves back to the centre cue;
             // dropping those keeps the strip from showing the same frame twice.
-            val previous = activeTrack.thumbnailFor(centerStartMs - 1)
-                ?.takeIf { it.cueStartMs != center.cueStartMs }
+            val previous = if (successor != null) {
+                // Re-centring made the covering cue the predecessor — no need to fetch it again.
+                coveringThumbnail
+            } else {
+                activeTrack.thumbnailFor(centerStartMs - 1)
+                    ?.takeIf { it.cueStartMs != center.cueStartMs }
+            }
             val next = activeTrack.thumbnailFor(centerEndMs)
                 ?.takeIf { it.cueStartMs != center.cueStartMs }
             frames = frames.copy(
