@@ -78,6 +78,20 @@ data class PlayerUiState(
     val showControls: Boolean = true,
     val showSeekOverlay: Boolean = false,
     val pendingPreviewSeekPosition: Long? = null,
+    /**
+     * Cue window (playback timebase) behind the preview frame currently on screen, or `null`
+     * while no preview has resolved. Drives grid-locked scrubbing and the scrubber's cue
+     * ticks — see [SeekPreviewCueStepper].
+     */
+    val previewCue: SeekPreviewCue? = null,
+    val showSeekPreviewSyncOverlay: Boolean = false,
+    /**
+     * Manual seek-preview sync correction, in milliseconds, applied to the position before
+     * the Seekr thumbnail lookup. Session-scoped on purpose: the correction describes the
+     * gap between the *currently playing release* and the release the sprites were generated
+     * from, so it is invalidated whenever the stream (and therefore the duration) changes.
+     */
+    val seekPreviewOffsetMs: Int = 0,
     val playbackSpeed: Float = 1f,
     val loadingOverlayEnabled: Boolean = true,
     val showPlayerLoadingStatus: Boolean = false,
@@ -298,6 +312,17 @@ sealed class PlayerEvent {
     data object OnHideSubtitleDelayOverlay : PlayerEvent()
     data class OnAdjustSubtitleDelay(val deltaMs: Int, val showOverlay: Boolean = true) : PlayerEvent()
     data class OnResetSubtitleDelay(val showOverlay: Boolean = true) : PlayerEvent()
+    data object OnShowSeekPreviewSyncOverlay : PlayerEvent()
+    data object OnHideSeekPreviewSyncOverlay : PlayerEvent()
+    data class OnAdjustSeekPreviewOffset(val deltaMs: Int) : PlayerEvent()
+    data class OnSetSeekPreviewOffset(val offsetMs: Int) : PlayerEvent()
+
+    /**
+     * Reported by the preview thumbnail composable once it knows which cue window the frame
+     * it just rendered was drawn from. Not a user interaction — it fires at scrub rate and
+     * must never reset the controls/overlay timeouts.
+     */
+    data class OnPreviewCueResolved(val cue: SeekPreviewCue?) : PlayerEvent()
     data object OnShowSpeedDialog : PlayerEvent()
     data object OnShowMoreDialog : PlayerEvent()
     data object OnDismissMoreDialog : PlayerEvent()
@@ -391,3 +416,13 @@ data class StreamInfoData(
     val subtitleSource: String? = null,
     val playerEngine: String? = null
 )
+
+/**
+ * Whether the seek-preview sync panel is actually on screen.
+ *
+ * Single source of truth shared by the render site, the D-pad handler and the back handler.
+ * If they were allowed to diverge, Back could be consumed by a panel the user cannot see —
+ * swallowing one press and making the *next* one exit the player.
+ */
+internal val PlayerUiState.isSeekPreviewSyncVisible: Boolean
+    get() = showSeekPreviewSyncOverlay && error == null && !showLoadingOverlay

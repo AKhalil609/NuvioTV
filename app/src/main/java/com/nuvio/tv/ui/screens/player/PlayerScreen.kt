@@ -28,6 +28,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -68,6 +69,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -84,6 +86,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -280,6 +283,8 @@ fun PlayerScreen(
             viewModel.onEvent(PlayerEvent.OnDismissSubtitleTimingDialog)
         } else if (uiState.showSubtitleDelayOverlay) {
             viewModel.onEvent(PlayerEvent.OnHideSubtitleDelayOverlay)
+        } else if (uiState.isSeekPreviewSyncVisible) {
+            viewModel.onEvent(PlayerEvent.OnHideSeekPreviewSyncOverlay)
         } else if (uiState.showSubtitleStylePanel) {
             viewModel.onEvent(PlayerEvent.OnDismissSubtitleStylePanel)
         } else if (uiState.showSourcesPanel) {
@@ -443,6 +448,7 @@ fun PlayerScreen(
         uiState.showSourcesPanel,
         uiState.showSubtitleStylePanel,
         uiState.showSubtitleDelayOverlay,
+        uiState.showSeekPreviewSyncOverlay,
         uiState.showSubtitleTimingDialog,
         uiState.showAudioOverlay,
         uiState.showSubtitleOverlay,
@@ -451,6 +457,9 @@ fun PlayerScreen(
         postPlayRecommendationState.isVisible,
     ) {
         if (shouldConfirmNextEpisodeOnEnd || postPlayRecommendationState.isVisible) return@LaunchedEffect
+        // The preview-sync panel owns focus while it is open; stealing it back would leave
+        // its D-pad keys unhandled and let Back escape the player.
+        if (uiState.showSeekPreviewSyncOverlay) return@LaunchedEffect
         if (uiState.showControls && !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
             !uiState.showAudioOverlay && !uiState.showSubtitleOverlay &&
             !uiState.showSubtitleStylePanel && !uiState.showSubtitleDelayOverlay &&
@@ -547,6 +556,7 @@ fun PlayerScreen(
                 if (uiState.showSubtitleDelayOverlay) {
                     viewModel.onEvent(PlayerEvent.OnHideSubtitleDelayOverlay)
                 } else if (
+                    !uiState.showSeekPreviewSyncOverlay &&
                     !uiState.showEpisodesPanel &&
                     !uiState.showSourcesPanel &&
                     !uiState.showAudioOverlay &&
@@ -1209,6 +1219,7 @@ fun PlayerScreen(
                 !uiState.showStreamInfoOverlay &&
                 !uiState.showSubtitleStylePanel &&
                 !uiState.showSubtitleDelayOverlay &&
+                !uiState.showSeekPreviewSyncOverlay &&
                 !uiState.showEpisodesPanel &&
                 !uiState.showSourcesPanel &&
                 !uiState.showAudioOverlay &&
@@ -1372,9 +1383,22 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
+            visible = uiState.isSeekPreviewSyncVisible,
+            enter = fadeIn(animationSpec = tween(120)),
+            exit = fadeOut(animationSpec = tween(120)),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 44.dp)
+                .zIndex(2.32f)
+        ) {
+            SeekPreviewSyncOverlayHost(viewModel = viewModel)
+        }
+
+        AnimatedVisibility(
             visible = uiState.showSeekOverlay && !uiState.showControls && uiState.error == null &&
                 !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
                 !uiState.showSubtitleDelayOverlay && !uiState.showSubtitleTimingDialog &&
+                !uiState.showSeekPreviewSyncOverlay &&
                 !uiState.showMoreDialog &&
                 !viewModel.playbackTimeline.collectAsState().value.isLive,
             enter = fadeIn(animationSpec = tween(150)),
@@ -2271,6 +2295,12 @@ private fun PlayerControlsOverlay(
                                 onDownKey = onHideControls,
                                 onFocused = onResetHideTimer
                             )
+                            SeekPreviewSyncControlButtonHost(
+                                viewModel = viewModel,
+                                upFocusRequester = progressUpTarget,
+                                onDownKey = onHideControls,
+                                onFocused = onResetHideTimer
+                            )
                             if (uiState.playbackIssueReportsEnabled) {
                                 ReportControlButton(
                                     reportId = uiState.playbackIssueReportId,
@@ -2318,6 +2348,7 @@ private fun PlayerControlsProgressBarHost(
     onFocused: (() -> Unit)? = null
 ) {
     val playbackTimeline by viewModel.playbackTimeline.collectAsState()
+    val cueIntervalMs by viewModel.seekPreviewCueIntervalMs.collectAsState()
 
     ProgressBar(
         currentPosition = playbackTimeline.currentPosition,
@@ -2333,7 +2364,29 @@ private fun PlayerControlsProgressBarHost(
         downFocusRequester = downFocusRequester,
         onUpKey = onUpKey,
         onFocused = onFocused,
-        bufferedPosition = playbackTimeline.bufferedPosition
+        bufferedPosition = playbackTimeline.bufferedPosition,
+        cueIntervalMs = cueIntervalMs
+    )
+}
+
+@Composable
+private fun SeekPreviewSyncControlButtonHost(
+    viewModel: PlayerViewModel,
+    upFocusRequester: FocusRequester,
+    onDownKey: () -> Unit,
+    onFocused: () -> Unit
+) {
+    // Only meaningful when a Seekr track actually loaded for this title.
+    val track by viewModel.seekrTrack.collectAsState()
+    if (track == null) return
+
+    ControlButton(
+        icon = Icons.Default.Tune,
+        contentDescription = stringResource(R.string.cd_seek_preview_sync),
+        onClick = { viewModel.onEvent(PlayerEvent.OnShowSeekPreviewSyncOverlay) },
+        upFocusRequester = upFocusRequester,
+        onDownKey = onDownKey,
+        onFocused = onFocused
     )
 }
 
@@ -2473,6 +2526,12 @@ private fun ControlButton(
     }
 }
 
+/** Ticks closer than this are noise rather than information, so the grid is hidden instead. */
+private val MIN_CUE_TICK_SPACING = 5.dp
+
+/** Upper bound on tick count, so a long title cannot turn the scrubber into a solid block. */
+private const val MAX_CUE_TICKS = 400L
+
 @Composable
 private fun ProgressBar(
     currentPosition: Long,
@@ -2485,7 +2544,12 @@ private fun ProgressBar(
     onUpKey: (() -> Unit)? = null,
     onFocused: (() -> Unit)? = null,
     /** Position (ms) up to which content is buffered. Pass 0 to skip the overlay. */
-    bufferedPosition: Long = 0L
+    bufferedPosition: Long = 0L,
+    /**
+     * Spacing (ms) between seek-preview cues, or 0 when unknown. Ticks are drawn at cue
+     * boundaries so the scrubber shows where grid-locked scrubbing can actually stop.
+     */
+    cueIntervalMs: Long = 0L
 ) {
     val accentBrush = ThemeColors.getColorPalette(NuvioTheme.currentTheme).accentBrush()
     val progress = if (duration > 0) {
@@ -2622,6 +2686,29 @@ private fun ProgressBar(
                 .clip(RoundedCornerShape(3.dp))
                 .background(accentBrush)
         )
+        // Cue ticks, drawn last so they stay legible over the played fill. Suppressed once
+        // they would be denser than the eye can separate — at that point the 10s grid is a
+        // rounding error on the bar anyway, and the preview strip carries the granularity.
+        if (cueIntervalMs > 0L && duration > 0L) {
+            val tickCount = duration / cueIntervalMs
+            val tickSpacing = if (tickCount > 0L) trackWidth / tickCount.toFloat() else 0.dp
+            if (tickCount in 2..MAX_CUE_TICKS && tickSpacing >= MIN_CUE_TICK_SPACING) {
+                Canvas(modifier = Modifier.matchParentSize()) {
+                    val stepPx = size.width * (cueIntervalMs.toFloat() / duration.toFloat())
+                    if (stepPx <= 0f) return@Canvas
+                    var x = stepPx
+                    while (x < size.width) {
+                        drawLine(
+                            color = Color.White.copy(alpha = 0.28f),
+                            start = Offset(x, 0f),
+                            end = Offset(x, size.height),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                        x += stepPx
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -2632,6 +2719,7 @@ private fun SeekOverlay(
     duration: Long,
     bufferedPosition: Long = 0L
 ) {
+    val cueIntervalMs by viewModel.seekPreviewCueIntervalMs.collectAsState()
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -2644,7 +2732,8 @@ private fun SeekOverlay(
                 duration = duration,
                 onSeekPreview = {},
                 onSeekCommit = {},
-                bufferedPosition = bufferedPosition
+                bufferedPosition = bufferedPosition,
+                cueIntervalMs = cueIntervalMs
             )
 
             Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
